@@ -28,7 +28,7 @@ class Profile(resource.Resource):
     commit_method = 'PATCH'
 
     _query_mapping = resource.QueryParameters(
-        'sort', 'global_project', 'type', 'name')
+        'project', 'sort', 'global_project', 'type', 'name')
 
     # Bodyerties
     #: The name of the profile

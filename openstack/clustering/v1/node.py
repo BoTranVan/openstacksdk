@@ -31,8 +31,8 @@ class Node(_async_resource.AsyncResource):
     commit_method = 'PATCH'
 
     _query_mapping = resource.QueryParameters(
-        'show_details', 'name', 'sort', 'global_project', 'cluster_id',
-        'status')
+        'project', 'show_details', 'name', 'sort', 'global_project',
+        'cluster_id', 'status')
 
     # Properties
     #: The name of the node.

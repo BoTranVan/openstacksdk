@@ -28,8 +28,8 @@ class Receiver(resource.Resource):
     commit_method = 'PATCH'
 
     _query_mapping = resource.QueryParameters(
-        'name', 'type', 'cluster_id', 'action', 'sort', 'global_project',
-        user_id='user')
+        'project', 'name', 'type', 'cluster_id', 'action', 'sort',
+        'global_project', user_id='user')
 
     # Properties
     #: The name of the receiver.

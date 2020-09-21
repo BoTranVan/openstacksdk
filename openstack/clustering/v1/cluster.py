@@ -30,7 +30,7 @@ class Cluster(_async_resource.AsyncResource):
     commit_method = 'PATCH'
 
     _query_mapping = resource.QueryParameters(
-        'name', 'status', 'sort', 'global_project')
+        'project', 'name', 'status', 'sort', 'global_project')
 
     # Properties
     #: The name of the cluster.

@@ -27,7 +27,7 @@ class Action(resource.Resource):
     commit_method = 'PATCH'
 
     _query_mapping = resource.QueryParameters(
-        'name', 'action', 'status', 'sort', 'global_project',
+        'project', 'name', 'action', 'status', 'sort', 'global_project',
         target_id='target')
 
     # Properties
