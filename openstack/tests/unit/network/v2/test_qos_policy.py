@@ -10,10 +10,11 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from openstack.tests.unit import base
 import uuid
 
 from openstack.network.v2 import qos_policy
+from openstack.tests.unit import base
+
 
 EXAMPLE = {
     'id': 'IDENTIFIER',
@@ -45,8 +46,8 @@ class TestQoSPolicy(base.TestCase):
         self.assertEqual(EXAMPLE['id'], sot.id)
         self.assertEqual(EXAMPLE['description'], sot.description)
         self.assertEqual(EXAMPLE['name'], sot.name)
-        self.assertTrue(sot.is_shared)
         self.assertEqual(EXAMPLE['tenant_id'], sot.project_id)
+        self.assertEqual(EXAMPLE['tenant_id'], sot.tenant_id)
         self.assertEqual(EXAMPLE['rules'], sot.rules)
         self.assertEqual(EXAMPLE['is_default'], sot.is_default)
         self.assertEqual(EXAMPLE['tags'], sot.tags)

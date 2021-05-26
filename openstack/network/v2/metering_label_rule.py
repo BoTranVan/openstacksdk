@@ -18,6 +18,8 @@ class MeteringLabelRule(resource.Resource):
     resources_key = 'metering_label_rules'
     base_path = '/metering/metering-label-rules'
 
+    _allow_unknown_attrs_in_body = True
+
     # capabilities
     allow_create = True
     allow_fetch = True
@@ -27,7 +29,7 @@ class MeteringLabelRule(resource.Resource):
 
     _query_mapping = resource.QueryParameters(
         'direction', 'metering_label_id', 'remote_ip_prefix',
-        project_id='tenant_id',
+        'source_ip_prefix', 'destination_ip_prefix', project_id='tenant_id',
     )
 
     # Properties
@@ -44,4 +46,16 @@ class MeteringLabelRule(resource.Resource):
     #: The ID of the project this metering label rule is associated with.
     project_id = resource.Body('tenant_id')
     #: The remote IP prefix to be associated with this metering label rule.
-    remote_ip_prefix = resource.Body('remote_ip_prefix')
+    remote_ip_prefix = resource.Body(
+        'remote_ip_prefix', deprecated=True,
+        deprecation_reason="The use of 'remote_ip_prefix' in metering label "
+                           "rules is deprecated and will be removed in future "
+                           "releases. One should use instead, the "
+                           "'source_ip_prefix' and/or 'destination_ip_prefix' "
+                           "parameters. For more details, you can check the "
+                           "spec: https://review.opendev.org/#/c/744702/.")
+
+    #: The source IP prefix to be associated with this metering label rule.
+    source_ip_prefix = resource.Body('source_ip_prefix')
+    #: The destination IP prefix to be associated with this metering label rule
+    destination_ip_prefix = resource.Body('destination_ip_prefix')

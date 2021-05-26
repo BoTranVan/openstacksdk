@@ -18,6 +18,8 @@ class QoSRuleType(resource.Resource):
     resources_key = 'rule_types'
     base_path = '/qos/rule-types'
 
+    _allow_unknown_attrs_in_body = True
+
     # capabilities
     allow_create = False
     allow_fetch = True
@@ -29,6 +31,6 @@ class QoSRuleType(resource.Resource):
 
     # Properties
     #: QoS rule type name.
-    type = resource.Body('type')
+    type = resource.Body('type', alternate_id=True)
     #: List of QoS backend drivers supporting this QoS rule type
     drivers = resource.Body('drivers')

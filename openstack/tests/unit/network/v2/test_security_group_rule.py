@@ -10,9 +10,9 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from openstack.network.v2 import security_group_rule
 from openstack.tests.unit import base
 
-from openstack.network.v2 import security_group_rule
 
 IDENTIFIER = 'IDENTIFIER'
 EXAMPLE = {
@@ -30,7 +30,8 @@ EXAMPLE = {
     'security_group_id': '10',
     'tenant_id': '11',
     'project_id': '11',
-    'updated_at': '12'
+    'updated_at': '12',
+    'remote_address_group_id': '13'
 }
 
 
@@ -50,6 +51,7 @@ class TestSecurityGroupRule(base.TestCase):
         self.assertDictEqual({'any_tags': 'tags-any',
                               'description': 'description',
                               'direction': 'direction',
+                              'id': 'id',
                               'ether_type': 'ethertype',
                               'limit': 'limit',
                               'marker': 'marker',
@@ -60,6 +62,8 @@ class TestSecurityGroupRule(base.TestCase):
                               'project_id': 'project_id',
                               'protocol': 'protocol',
                               'remote_group_id': 'remote_group_id',
+                              'remote_address_group_id':
+                                  'remote_address_group_id',
                               'remote_ip_prefix': 'remote_ip_prefix',
                               'revision_number': 'revision_number',
                               'security_group_id': 'security_group_id',
@@ -81,6 +85,8 @@ class TestSecurityGroupRule(base.TestCase):
         self.assertEqual(EXAMPLE['port_range_min'], sot.port_range_min)
         self.assertEqual(EXAMPLE['protocol'], sot.protocol)
         self.assertEqual(EXAMPLE['remote_group_id'], sot.remote_group_id)
+        self.assertEqual(EXAMPLE['remote_address_group_id'],
+                         sot.remote_address_group_id)
         self.assertEqual(EXAMPLE['remote_ip_prefix'], sot.remote_ip_prefix)
         self.assertEqual(EXAMPLE['revision_number'], sot.revision_number)
         self.assertEqual(EXAMPLE['security_group_id'], sot.security_group_id)

@@ -49,6 +49,15 @@ EXPECTED_STATES = {
 }
 """Mapping of provisioning actions to expected stable states."""
 
+EXPECTED_POWER_STATES = {
+    'power on': 'power on',
+    'power off': 'power off',
+    'rebooting': 'power on',
+    'soft power off': 'power off',
+    'soft rebooting': 'power on',
+}
+"""Mapping of target power states to expected power states."""
+
 STATE_VERSIONS = {
     'enroll': '1.11',
     'manageable': '1.4',
@@ -66,6 +75,9 @@ RESET_INTERFACES_VERSION = '1.45'
 
 CONFIG_DRIVE_DICT_VERSION = '1.56'
 """API version in which configdrive can be a dictionary."""
+
+DEPLOY_STEPS_VERSION = '1.69'
+"""API version in which deploy_steps was added to node provisioning."""
 
 
 class ListMixin:

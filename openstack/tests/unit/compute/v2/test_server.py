@@ -97,7 +97,6 @@ EXAMPLE = {
     'name': 'new-server-test',
     'networks': 'auto',
     'os-extended-volumes:volumes_attached': [],
-    'personality': '28',
     'progress': 0,
     'security_groups': [
         {
@@ -225,7 +224,6 @@ class TestServer(base.TestCase):
                          sot.terminated_at)
         self.assertEqual(EXAMPLE['security_groups'], sot.security_groups)
         self.assertEqual(EXAMPLE['adminPass'], sot.admin_password)
-        self.assertEqual(EXAMPLE['personality'], sot.personality)
         self.assertEqual(EXAMPLE['block_device_mapping_v2'],
                          sot.block_device_mapping)
         self.assertEqual(EXAMPLE['OS-EXT-SRV-ATTR:host'],
@@ -259,7 +257,7 @@ class TestServer(base.TestCase):
         hints = {"hint": 3}
 
         sot = server.Server(id=1, availability_zone=zone, user_data=data,
-                            scheduler_hints=hints)
+                            scheduler_hints=hints, min_count=2, max_count=3)
         request = sot._prepare_request()
 
         self.assertNotIn("OS-EXT-AZ:availability_zone",
@@ -275,6 +273,9 @@ class TestServer(base.TestCase):
         self.assertNotIn("OS-SCH-HNT:scheduler_hints",
                          request.body[sot.resource_key])
         self.assertEqual(request.body["OS-SCH-HNT:scheduler_hints"], hints)
+
+        self.assertEqual(2, request.body[sot.resource_key]['min_count'])
+        self.assertEqual(3, request.body[sot.resource_key]['max_count'])
 
     def test_change_password(self):
         sot = server.Server(**EXAMPLE)
@@ -318,8 +319,7 @@ class TestServer(base.TestCase):
                              image='http://image/1', access_ipv4="12.34.56.78",
                              access_ipv6="fe80::100",
                              metadata={"meta var": "meta val"},
-                             personality=[{"path": "/etc/motd",
-                                           "contents": "foo"}])
+                             user_data="ZWNobyAiaGVsbG8gd29ybGQi")
 
         self.assertIsInstance(result, server.Server)
 
@@ -332,7 +332,7 @@ class TestServer(base.TestCase):
                 "accessIPv4": "12.34.56.78",
                 "accessIPv6": "fe80::100",
                 "metadata": {"meta var": "meta val"},
-                "personality": [{"path": "/etc/motd", "contents": "foo"}],
+                "user_data": "ZWNobyAiaGVsbG8gd29ybGQi",
                 "preserve_ephemeral": False
             }
         }
@@ -447,6 +447,7 @@ class TestServer(base.TestCase):
                                        min_microversion='2.1',
                                        max_microversion='2.56')
         self.sess.get_endpoint_data.return_value = self.endpoint_data
+        self.sess.default_microversion = None
 
         image_id = sot.create_image(self.sess, name, metadata)
 
@@ -474,6 +475,7 @@ class TestServer(base.TestCase):
                                        min_microversion='2.1',
                                        max_microversion='2.56')
         self.sess.get_endpoint_data.return_value = self.endpoint_data
+        self.sess.default_microversion = None
 
         self.assertIsNone(self.resp.body, sot.create_image(self.sess, name))
 
@@ -770,6 +772,20 @@ class TestServer(base.TestCase):
         self.sess.post.assert_called_with(
             url, json=body, headers=headers, microversion=None)
 
+    def test_unshelve_availability_zone(self):
+        sot = server.Server(**EXAMPLE)
+
+        res = sot.unshelve(self.sess, sot.availability_zone)
+
+        self.assertIsNone(res)
+        url = 'servers/IDENTIFIER/action'
+        body = {"unshelve": {
+            "availability_zone": sot.availability_zone
+        }}
+        headers = {'Accept': ''}
+        self.sess.post.assert_called_with(
+            url, json=body, headers=headers, microversion=None)
+
     def test_migrate(self):
         sot = server.Server(**EXAMPLE)
 
@@ -804,6 +820,52 @@ class TestServer(base.TestCase):
         headers = {'Accept': ''}
         self.sess.post.assert_called_with(
             url, json=body, headers=headers, microversion=None)
+
+    def test_get_console_url(self):
+        sot = server.Server(**EXAMPLE)
+
+        resp = mock.Mock()
+        resp.body = {'console': {'a': 'b'}}
+        resp.json = mock.Mock(return_value=resp.body)
+        resp.status_code = 200
+        self.sess.post.return_value = resp
+
+        res = sot.get_console_url(self.sess, 'novnc')
+        self.sess.post.assert_called_with(
+            'servers/IDENTIFIER/action',
+            json={'os-getVNCConsole': {'type': 'novnc'}},
+            headers={'Accept': ''}, microversion=None)
+        self.assertDictEqual(resp.body['console'], res)
+
+        sot.get_console_url(self.sess, 'xvpvnc')
+        self.sess.post.assert_called_with(
+            'servers/IDENTIFIER/action',
+            json={'os-getVNCConsole': {'type': 'xvpvnc'}},
+            headers={'Accept': ''}, microversion=None)
+
+        sot.get_console_url(self.sess, 'spice-html5')
+        self.sess.post.assert_called_with(
+            'servers/IDENTIFIER/action',
+            json={'os-getSPICEConsole': {'type': 'spice-html5'}},
+            headers={'Accept': ''}, microversion=None)
+
+        sot.get_console_url(self.sess, 'rdp-html5')
+        self.sess.post.assert_called_with(
+            'servers/IDENTIFIER/action',
+            json={'os-getRDPConsole': {'type': 'rdp-html5'}},
+            headers={'Accept': ''}, microversion=None)
+
+        sot.get_console_url(self.sess, 'serial')
+        self.sess.post.assert_called_with(
+            'servers/IDENTIFIER/action',
+            json={'os-getSerialConsole': {'type': 'serial'}},
+            headers={'Accept': ''}, microversion=None)
+
+        self.assertRaises(ValueError,
+                          sot.get_console_url,
+                          self.sess,
+                          'fake_type'
+                          )
 
     def test_live_migrate_no_force(self):
         sot = server.Server(**EXAMPLE)
@@ -854,6 +916,7 @@ class TestServer(base.TestCase):
             min_microversion = '2.1'
             max_microversion = '2.25'
         self.sess.get_endpoint_data.return_value = FakeEndpointData()
+        self.sess.default_microversion = None
 
         res = sot.live_migrate(
             self.sess, host='HOST2', force=True, block_migration=False)
@@ -878,6 +941,7 @@ class TestServer(base.TestCase):
             min_microversion = '2.1'
             max_microversion = '2.25'
         self.sess.get_endpoint_data.return_value = FakeEndpointData()
+        self.sess.default_microversion = None
 
         res = sot.live_migrate(
             self.sess, host='HOST2', force=True, block_migration=None)
@@ -902,6 +966,7 @@ class TestServer(base.TestCase):
             min_microversion = '2.1'
             max_microversion = '2.30'
         self.sess.get_endpoint_data.return_value = FakeEndpointData()
+        self.sess.default_microversion = None
 
         res = sot.live_migrate(
             self.sess, host='HOST2', force=False, block_migration=False)
@@ -926,6 +991,7 @@ class TestServer(base.TestCase):
             min_microversion = '2.1'
             max_microversion = '2.30'
         self.sess.get_endpoint_data.return_value = FakeEndpointData()
+        self.sess.default_microversion = None
 
         res = sot.live_migrate(
             self.sess, host='HOST2', force=True, block_migration=None)

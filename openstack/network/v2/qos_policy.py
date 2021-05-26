@@ -19,6 +19,8 @@ class QoSPolicy(resource.Resource, resource.TagMixin):
     resources_key = 'policies'
     base_path = '/qos/policies'
 
+    _allow_unknown_attrs_in_body = True
+
     # capabilities
     allow_create = True
     allow_fetch = True
@@ -38,7 +40,9 @@ class QoSPolicy(resource.Resource, resource.TagMixin):
     name = resource.Body('name')
     #: The ID of the project who owns the network. Only administrative
     #: users can specify a project ID other than their own.
-    project_id = resource.Body('tenant_id')
+    project_id = resource.Body('project_id', alias='tenant_id')
+    #: Tenant_id (deprecated attribute).
+    tenant_id = resource.Body('tenant_id', deprecated=True)
     #: The QoS policy description.
     description = resource.Body('description')
     #: Indicates whether this QoS policy is the default policy for this

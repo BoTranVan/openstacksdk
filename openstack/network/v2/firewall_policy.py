@@ -12,8 +12,8 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 # License for the specific language governing permissions and limitations
 # under the License.
-from openstack.exceptions import HttpException
 
+from openstack.exceptions import HttpException
 from openstack import resource
 from openstack import utils
 
@@ -22,6 +22,8 @@ class FirewallPolicy(resource.Resource):
     resource_key = 'firewall_policy'
     resources_key = 'firewall_policies'
     base_path = '/fwaas/firewall_policies'
+
+    _allow_unknown_attrs_in_body = True
 
     # capabilities
     allow_create = True

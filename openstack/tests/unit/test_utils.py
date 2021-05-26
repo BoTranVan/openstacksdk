@@ -13,9 +13,10 @@
 # under the License.
 
 import concurrent.futures
+import hashlib
 import logging
-from unittest import mock
 import sys
+from unittest import mock
 
 import fixtures
 import os_service_types
@@ -133,6 +134,67 @@ class Test_urljoin(base.TestCase):
         self.assertEqual(result, u"http://www.example.com/ascii/extra_chars-™")
 
 
+class TestSupportsMicroversion(base.TestCase):
+    def setUp(self):
+        super(TestSupportsMicroversion, self).setUp()
+        self.adapter = mock.Mock(spec=['get_endpoint_data'])
+        self.endpoint_data = mock.Mock(spec=['min_microversion',
+                                             'max_microversion'],
+                                       min_microversion='1.1',
+                                       max_microversion='1.99')
+        self.adapter.get_endpoint_data.return_value = self.endpoint_data
+
+    def test_requested_supported_no_default(self):
+        self.adapter.default_microversion = None
+        self.assertTrue(
+            utils.supports_microversion(self.adapter, '1.2'))
+
+    def test_requested_not_supported_no_default(self):
+        self.adapter.default_microversion = None
+        self.assertFalse(
+            utils.supports_microversion(self.adapter, '2.2'))
+
+    def test_requested_not_supported_no_default_exception(self):
+        self.adapter.default_microversion = None
+        self.assertRaises(
+            exceptions.SDKException,
+            utils.supports_microversion,
+            self.adapter,
+            '2.2',
+            True)
+
+    def test_requested_supported_higher_default(self):
+        self.adapter.default_microversion = '1.8'
+        self.assertTrue(
+            utils.supports_microversion(self.adapter, '1.6'))
+
+    def test_requested_supported_equal_default(self):
+        self.adapter.default_microversion = '1.8'
+        self.assertTrue(
+            utils.supports_microversion(self.adapter, '1.8'))
+
+    def test_requested_supported_lower_default(self):
+        self.adapter.default_microversion = '1.2'
+        self.assertFalse(
+            utils.supports_microversion(self.adapter, '1.8'))
+
+    def test_requested_supported_lower_default_exception(self):
+        self.adapter.default_microversion = '1.2'
+        self.assertRaises(
+            exceptions.SDKException,
+            utils.supports_microversion,
+            self.adapter,
+            '1.8',
+            True)
+
+    @mock.patch('openstack.utils.supports_microversion')
+    def test_require_microversion(self, sm_mock):
+        utils.require_microversion(self.adapter, '1.2')
+        sm_mock.assert_called_with(self.adapter,
+                                   '1.2',
+                                   raise_exception=True)
+
+
 class TestMaximumSupportedMicroversion(base.TestCase):
     def setUp(self):
         super(TestMaximumSupportedMicroversion, self).setUp()
@@ -241,3 +303,85 @@ class TestTinyDAG(base.TestCase):
 def test_walker_fn(graph, node, lst):
     lst.append(node)
     graph.node_done(node)
+
+
+class Test_md5(base.TestCase):
+
+    def setUp(self):
+        super(Test_md5, self).setUp()
+        self.md5_test_data = "Openstack forever".encode('utf-8')
+        try:
+            self.md5_digest = hashlib.md5(  # nosec
+                self.md5_test_data).hexdigest()
+            self.fips_enabled = False
+        except ValueError:
+            self.md5_digest = '0d6dc3c588ae71a04ce9a6beebbbba06'
+            self.fips_enabled = True
+
+    def test_md5_with_data(self):
+        if not self.fips_enabled:
+            digest = utils.md5(self.md5_test_data).hexdigest()
+            self.assertEqual(digest, self.md5_digest)
+        else:
+            # on a FIPS enabled system, this throws a ValueError:
+            # [digital envelope routines: EVP_DigestInit_ex] disabled for FIPS
+            self.assertRaises(ValueError, utils.md5, self.md5_test_data)
+        if not self.fips_enabled:
+            digest = utils.md5(self.md5_test_data,
+                               usedforsecurity=True).hexdigest()
+            self.assertEqual(digest, self.md5_digest)
+        else:
+            self.assertRaises(
+                ValueError, utils.md5, self.md5_test_data,
+                usedforsecurity=True)
+        digest = utils.md5(self.md5_test_data,
+                           usedforsecurity=False).hexdigest()
+        self.assertEqual(digest, self.md5_digest)
+
+    def test_md5_without_data(self):
+        if not self.fips_enabled:
+            test_md5 = utils.md5()
+            test_md5.update(self.md5_test_data)
+            digest = test_md5.hexdigest()
+            self.assertEqual(digest, self.md5_digest)
+        else:
+            self.assertRaises(ValueError, utils.md5)
+        if not self.fips_enabled:
+            test_md5 = utils.md5(usedforsecurity=True)
+            test_md5.update(self.md5_test_data)
+            digest = test_md5.hexdigest()
+            self.assertEqual(digest, self.md5_digest)
+        else:
+            self.assertRaises(ValueError, utils.md5, usedforsecurity=True)
+        test_md5 = utils.md5(usedforsecurity=False)
+        test_md5.update(self.md5_test_data)
+        digest = test_md5.hexdigest()
+        self.assertEqual(digest, self.md5_digest)
+
+    def test_string_data_raises_type_error(self):
+        if not self.fips_enabled:
+            self.assertRaises(TypeError, hashlib.md5, u'foo')
+            self.assertRaises(TypeError, utils.md5, u'foo')
+            self.assertRaises(
+                TypeError, utils.md5, u'foo', usedforsecurity=True)
+        else:
+            self.assertRaises(ValueError, hashlib.md5, u'foo')
+            self.assertRaises(ValueError, utils.md5, u'foo')
+            self.assertRaises(
+                ValueError, utils.md5, u'foo', usedforsecurity=True)
+        self.assertRaises(
+            TypeError, utils.md5, u'foo', usedforsecurity=False)
+
+    def test_none_data_raises_type_error(self):
+        if not self.fips_enabled:
+            self.assertRaises(TypeError, hashlib.md5, None)
+            self.assertRaises(TypeError, utils.md5, None)
+            self.assertRaises(
+                TypeError, utils.md5, None, usedforsecurity=True)
+        else:
+            self.assertRaises(ValueError, hashlib.md5, None)
+            self.assertRaises(ValueError, utils.md5, None)
+            self.assertRaises(
+                ValueError, utils.md5, None, usedforsecurity=True)
+        self.assertRaises(
+            TypeError, utils.md5, None, usedforsecurity=False)

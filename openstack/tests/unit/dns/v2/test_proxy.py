@@ -11,12 +11,12 @@
 # under the License.
 
 from openstack.dns.v2 import _proxy
-from openstack.dns.v2 import zone
-from openstack.dns.v2 import zone_import
-from openstack.dns.v2 import zone_export
-from openstack.dns.v2 import zone_transfer
-from openstack.dns.v2 import recordset
 from openstack.dns.v2 import floating_ip
+from openstack.dns.v2 import recordset
+from openstack.dns.v2 import zone
+from openstack.dns.v2 import zone_export
+from openstack.dns.v2 import zone_import
+from openstack.dns.v2 import zone_transfer
 from openstack.tests.unit import test_proxy_base
 
 
@@ -50,16 +50,18 @@ class TestDnsZone(TestDnsProxy):
         self.verify_update(self.proxy.update_zone, zone.Zone)
 
     def test_zone_abandon(self):
-        self._verify2("openstack.dns.v2.zone.Zone.abandon",
-                      self.proxy.abandon_zone,
-                      method_args=[{'zone': 'id'}],
-                      expected_args=[self.proxy])
+        self._verify(
+            "openstack.dns.v2.zone.Zone.abandon",
+            self.proxy.abandon_zone,
+            method_args=[{'zone': 'id'}],
+            expected_args=[self.proxy])
 
     def test_zone_xfr(self):
-        self._verify2("openstack.dns.v2.zone.Zone.xfr",
-                      self.proxy.xfr_zone,
-                      method_args=[{'zone': 'id'}],
-                      expected_args=[self.proxy])
+        self._verify(
+            "openstack.dns.v2.zone.Zone.xfr",
+            self.proxy.xfr_zone,
+            method_args=[{'zone': 'id'}],
+            expected_args=[self.proxy])
 
 
 class TestDnsRecordset(TestDnsProxy):
@@ -84,7 +86,7 @@ class TestDnsRecordset(TestDnsProxy):
 
     def test_recordsets(self):
         self.verify_list(self.proxy.recordsets, recordset.Recordset,
-                         base_path='/recordsets')
+                         expected_kwargs={'base_path': '/recordsets'})
 
     def test_recordsets_zone(self):
         self.verify_list(self.proxy.recordsets, recordset.Recordset,
@@ -92,13 +94,13 @@ class TestDnsRecordset(TestDnsProxy):
                          expected_kwargs={'zone_id': 'zid'})
 
     def test_recordset_find(self):
-        self._verify2("openstack.proxy.Proxy._find",
-                      self.proxy.find_recordset,
-                      method_args=['zone', 'rs'],
-                      method_kwargs={},
-                      expected_args=[recordset.Recordset, 'rs'],
-                      expected_kwargs={'ignore_missing': True,
-                                       'zone_id': 'zone'})
+        self._verify(
+            "openstack.proxy.Proxy._find",
+            self.proxy.find_recordset,
+            method_args=['zone', 'rs'],
+            method_kwargs={},
+            expected_args=[recordset.Recordset, 'rs'],
+            expected_kwargs={'ignore_missing': True, 'zone_id': 'zone'})
 
 
 class TestDnsFloatIP(TestDnsProxy):
@@ -111,12 +113,6 @@ class TestDnsFloatIP(TestDnsProxy):
     def test_floating_ip_update(self):
         self.verify_update(self.proxy.update_floating_ip,
                            floating_ip.FloatingIP)
-
-    def test_zone_create(self):
-        self.verify_create(self.proxy.create_zone, zone.Zone,
-                           method_kwargs={'name': 'id'},
-                           expected_kwargs={'name': 'id',
-                                            'prepend_key': False})
 
 
 class TestDnsZoneImport(TestDnsProxy):
@@ -149,7 +145,7 @@ class TestDnsZoneExport(TestDnsProxy):
     def test_zone_export_get_text(self):
         self.verify_get(self.proxy.get_zone_export_text,
                         zone_export.ZoneExport,
-                        value=[{'id': 'zone_export_id_value'}],
+                        method_args=[{'id': 'zone_export_id_value'}],
                         expected_kwargs={
                             'base_path': '/zones/tasks/export/%(id)s/export'
                         })
@@ -162,6 +158,7 @@ class TestDnsZoneExport(TestDnsProxy):
                            zone_export.ZoneExport,
                            method_args=[{'id': 'zone_id_value'}],
                            method_kwargs={'name': 'id'},
+                           expected_args=[],
                            expected_kwargs={'name': 'id',
                                             'zone_id': 'zone_id_value',
                                             'prepend_key': False})
@@ -185,6 +182,7 @@ class TestDnsZoneTransferRequest(TestDnsProxy):
                            zone_transfer.ZoneTransferRequest,
                            method_args=[{'id': 'zone_id_value'}],
                            method_kwargs={'name': 'id'},
+                           expected_args=[],
                            expected_kwargs={'name': 'id',
                                             'zone_id': 'zone_id_value',
                                             'prepend_key': False})

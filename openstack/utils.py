@@ -10,6 +10,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import hashlib
 import queue
 import string
 import threading
@@ -94,18 +95,23 @@ def get_string_format_keys(fmt_string, old_style=True):
         return keys
 
 
-def supports_microversion(adapter, microversion):
+def supports_microversion(adapter, microversion, raise_exception=False):
     """Determine if the given adapter supports the given microversion.
 
-    Checks the min and max microversion asserted by the service and checks
-    to make sure that ``min <= microversion <= max``.
+    Checks the min and max microversion asserted by the service and checks to
+    make sure that ``min <= microversion <= max``. Current default microversion
+    is taken into consideration if set and verifies that ``microversion <=
+    default``.
 
-    :param adapter:
-        :class:`~keystoneauth1.adapter.Adapter` instance.
-    :param str microversion:
-        String containing the desired microversion.
+    :param adapter: :class:`~keystoneauth1.adapter.Adapter` instance.
+    :param str microversion: String containing the desired microversion.
+    :param bool raise_exception: Raise exception when requested microversion
+        is not supported be the server side or is higher than the current
+        default microversion.
     :returns: True if the service supports the microversion.
     :rtype: bool
+    :raises: :class:`~openstack.exceptions.SDKException` when requested
+        microversion is not supported.
     """
 
     endpoint_data = adapter.get_endpoint_data()
@@ -115,8 +121,39 @@ def supports_microversion(adapter, microversion):
                 endpoint_data.min_microversion,
                 endpoint_data.max_microversion,
                 microversion)):
+        if adapter.default_microversion is not None:
+            # If default_microversion is set - evaluate
+            # whether it match the expectation
+            candidate = discover.normalize_version_number(
+                adapter.default_microversion)
+            required = discover.normalize_version_number(microversion)
+            supports = discover.version_match(required, candidate)
+            if raise_exception and not supports:
+                raise exceptions.SDKException(
+                    'Required microversion {ver} is higher than currently '
+                    'selected {curr}'.format(
+                        ver=microversion,
+                        curr=adapter.default_microversion)
+                )
+            return supports
         return True
+    if raise_exception:
+        raise exceptions.SDKException(
+            'Required microversion {ver} is not supported '
+            'by the server side'.format(ver=microversion)
+        )
     return False
+
+
+def require_microversion(adapter, required):
+    """Require microversion.
+
+    :param adapter: :class:`~keystoneauth1.adapter.Adapter` instance.
+    :param str microversion: String containing the desired microversion.
+    :raises: :class:`~openstack.exceptions.SDKException` when requested
+        microversion is not supported
+    """
+    supports_microversion(adapter, required, raise_exception=True)
 
 
 def pick_microversion(session, required):
@@ -145,6 +182,10 @@ def pick_microversion(session, required):
                         else required)
 
     if required is not None:
+        if not supports_microversion(session, required):
+            raise exceptions.SDKException(
+                'Requested microversion is not supported by the server side '
+                'or the default microversion is too low')
         return discover.version_to_string(required)
 
 
@@ -190,6 +231,26 @@ def maximum_supported_microversion(adapter, client_maximum):
 
     result = min(client_max, server_max)
     return discover.version_to_string(result)
+
+
+try:
+    _test_md5 = hashlib.md5(usedforsecurity=False)  # nosec
+
+    # Python distributions that support a hashlib.md5 with the usedforsecurity
+    # keyword can just use that md5 definition as-is
+    # See https://bugs.python.org/issue9216
+    #
+    # TODO(alee) Remove this wrapper when the minimum python version is bumped
+    # to 3.9 (which is the first upstream version to support this keyword)
+    # See https://docs.python.org/3.9/library/hashlib.html
+    md5 = hashlib.md5
+except TypeError:
+    def md5(string=b'', usedforsecurity=True):
+        """Return an md5 hashlib object without usedforsecurity parameter
+        For python distributions that do not yet support this keyword
+        parameter, we drop the parameter
+        """
+        return hashlib.md5(string)  # nosec
 
 
 class TinyDAG:

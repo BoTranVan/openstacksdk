@@ -66,14 +66,20 @@ Flavor Operations
 
 .. autoclass:: openstack.compute.v2._proxy.Proxy
   :noindex:
-  :members: create_flavor, delete_flavor, get_flavor, find_flavor, flavors
+  :members: create_flavor, delete_flavor, get_flavor, find_flavor, flavors,
+            flavor_add_tenant_access, flavor_remove_tenant_access,
+            get_flavor_access, fetch_flavor_extra_specs,
+            create_flavor_extra_specs, get_flavor_extra_specs_property,
+            update_flavor_extra_specs_property,
+            delete_flavor_extra_specs_property
 
 Service Operations
 ^^^^^^^^^^^^^^^^^^
 
 .. autoclass:: openstack.compute.v2._proxy.Proxy
   :noindex:
-  :members: services, enable_service, disable_service, force_service_down
+  :members: services, enable_service, disable_service, update_service_forced_down,
+            delete_service, update_service, find_service
 
 Volume Attachment Operations
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -134,7 +140,8 @@ Hypervisor Operations
 
 .. autoclass:: openstack.compute.v2._proxy.Proxy
   :noindex:
-  :members: get_hypervisor, find_hypervisor, hypervisors
+  :members: get_hypervisor, find_hypervisor, hypervisors,
+            get_hypervisor_uptime
 
 Extension Operations
 ^^^^^^^^^^^^^^^^^^^^

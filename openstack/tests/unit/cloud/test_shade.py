@@ -17,6 +17,7 @@ import testtools
 
 from openstack.cloud import exc
 from openstack import connection
+from openstack import exceptions
 from openstack.tests import fakes
 from openstack.tests.unit import base
 from openstack import utils
@@ -409,11 +410,11 @@ class TestShade(base.TestCase):
                  json={'servers': [fake_server]}),
             dict(method='GET',
                  uri=self.get_mock_url(
-                     'network', 'public', append=['v2.0', 'networks.json']),
+                     'network', 'public', append=['v2.0', 'networks']),
                  json=fake_networks),
             dict(method='GET',
                  uri=self.get_mock_url(
-                     'network', 'public', append=['v2.0', 'subnets.json']),
+                     'network', 'public', append=['v2.0', 'subnets']),
                  json=fake_subnets)
         ])
 
@@ -621,7 +622,7 @@ class TestShade(base.TestCase):
         self.register_uris([
             dict(method='GET',
                  uri=self.get_mock_url(
-                     'network', 'public', append=['v2.0', 'extensions.json']),
+                     'network', 'public', append=['v2.0', 'extensions']),
                  json=dict(extensions=body))
         ])
         extensions = self.cloud._neutron_extensions()
@@ -633,12 +634,11 @@ class TestShade(base.TestCase):
         self.register_uris([
             dict(method='GET',
                  uri=self.get_mock_url(
-                     'network', 'public', append=['v2.0', 'extensions.json']),
+                     'network', 'public', append=['v2.0', 'extensions']),
                  status_code=404)
         ])
         with testtools.ExpectedException(
-            exc.OpenStackCloudURINotFound,
-            "Error fetching extension list for neutron"
+            exceptions.ResourceNotFound
         ):
             self.cloud._neutron_extensions()
 
@@ -665,7 +665,7 @@ class TestShade(base.TestCase):
         self.register_uris([
             dict(method='GET',
                  uri=self.get_mock_url(
-                     'network', 'public', append=['v2.0', 'extensions.json']),
+                     'network', 'public', append=['v2.0', 'extensions']),
                  json=dict(extensions=body))
         ])
         self.assertTrue(self.cloud._has_neutron_extension('dvr'))
@@ -692,7 +692,7 @@ class TestShade(base.TestCase):
         self.register_uris([
             dict(method='GET',
                  uri=self.get_mock_url(
-                     'network', 'public', append=['v2.0', 'extensions.json']),
+                     'network', 'public', append=['v2.0', 'extensions']),
                  json=dict(extensions=body))
         ])
         self.assertFalse(self.cloud._has_neutron_extension('invalid'))

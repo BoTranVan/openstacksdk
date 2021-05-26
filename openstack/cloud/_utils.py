@@ -16,19 +16,20 @@ import contextlib
 import fnmatch
 import functools
 import inspect
-import jmespath
-import munch
-import netifaces
 import re
-import sre_constants
 import time
 import uuid
 
 from decorator import decorator
+import jmespath
+import munch
+import netifaces
+import sre_constants
 
 from openstack import _log
 from openstack.cloud import exc
 from openstack.cloud import meta
+
 
 _decorated_methods = []
 
@@ -535,8 +536,8 @@ def _call_client_and_retry(client, url, retry_on=None,
         except exc.OpenStackCloudHTTPError as e:
             if (retry_on is not None
                     and e.response.status_code in retry_on):
-                log.debug('Received retryable error {err}, waiting '
-                          '{wait} seconds to retry', {
+                log.debug('Received retryable error %(err)s, waiting '
+                          '%(wait)s seconds to retry', {
                               'err': e.response.status_code,
                               'wait': retry_wait
                           })

@@ -1,21 +1,13 @@
-Getting started with the OpenStack SDK
-======================================
+=======================
+Using the OpenStack SDK
+=======================
+
+This section of documentation pertains to those who wish to use this SDK in
+their own application. If you're looking for documentation on how to contribute
+to or extend the SDK, refer to the `contributor <../contributor>`_ section.
 
 For a listing of terms used throughout the SDK, including the names of
 projects and services supported by it, see the :doc:`glossary <../glossary>`.
-
-Installation
-------------
-
-The OpenStack SDK is available on
-`PyPI <https://pypi.org/project/openstacksdk>`_ under the name
-**openstacksdk**. To install it, use ``pip``::
-
-   $ pip install openstacksdk
-
-To check the installed version you can call the module with ::
-
-   $ python -m openstack version
 
 .. _user_guides:
 
@@ -29,6 +21,7 @@ approach, this is where you'll want to begin.
 .. toctree::
    :maxdepth: 1
 
+   Introduction <guides/intro>
    Configuration <config/index>
    Connect to an OpenStack Cloud <guides/connect>
    Connect to an OpenStack Cloud Using a Config File <guides/connect_from_config>
@@ -48,6 +41,7 @@ approach, this is where you'll want to begin.
    Network <guides/network>
    Object Store <guides/object_store>
    Orchestration <guides/orchestration>
+   Shared File System <guides/shared_file_system>
 
 API Documentation
 -----------------
@@ -98,7 +92,8 @@ control which services can be used.
    Accelerator <proxies/accelerator>
    Baremetal <proxies/baremetal>
    Baremetal Introspection <proxies/baremetal_introspection>
-   Block Storage <proxies/block_storage>
+   Block Storage v2 <proxies/block_storage_v2>
+   Block Storage v3 <proxies/block_storage_v3>
    Clustering <proxies/clustering>
    Compute <proxies/compute>
    Database <proxies/database>
@@ -113,6 +108,8 @@ control which services can be used.
    Network <proxies/network>
    Object Store <proxies/object_store>
    Orchestration <proxies/orchestration>
+   Placement <proxies/placement>
+   Shared File System <proxies/shared_file_system>
    Workflow <proxies/workflow>
 
 Resource Interface
@@ -145,6 +142,8 @@ The following services have exposed *Resource* classes.
    Network <resources/network/index>
    Orchestration <resources/orchestration/index>
    Object Store <resources/object_store/index>
+   Placement <resources/placement/index>
+   Shared File System <resources/shared_file_system/index>
    Workflow <resources/workflow/index>
 
 Low-Level Classes
@@ -163,7 +162,7 @@ can be customized.
    utils
 
 Presentations
-=============
+-------------
 
 .. toctree::
    :maxdepth: 1

@@ -40,8 +40,17 @@ APPDIRS = appdirs.AppDirs('openstack', 'OpenStack', multipath='/etc')
 CONFIG_HOME = APPDIRS.user_config_dir
 CACHE_PATH = APPDIRS.user_cache_dir
 
-UNIX_CONFIG_HOME = os.path.join(
-    os.path.expanduser(os.path.join('~', '.config')), 'openstack')
+# snaps do set $HOME to something like
+# /home/$USER/snap/openstackclients/$SNAP_VERSION
+# the real home (usually /home/$USERNAME) is stored in $SNAP_REAL_HOME
+# see https://snapcraft.io/docs/environment-variables
+SNAP_REAL_HOME = os.getenv('SNAP_REAL_HOME')
+if SNAP_REAL_HOME:
+    UNIX_CONFIG_HOME = os.path.join(os.path.join(SNAP_REAL_HOME, '.config'),
+                                    'openstack')
+else:
+    UNIX_CONFIG_HOME = os.path.join(
+        os.path.expanduser(os.path.join('~', '.config')), 'openstack')
 UNIX_SITE_CONFIG_HOME = '/etc/openstack'
 
 SITE_CONFIG_HOME = APPDIRS.site_config_dir
@@ -151,9 +160,19 @@ class OpenStackConfig:
         self._load_envvars = load_envvars
 
         if load_yaml_config:
-            self._config_files = config_files or CONFIG_FILES
-            self._secure_files = secure_files or SECURE_FILES
-            self._vendor_files = vendor_files or VENDOR_FILES
+            # "if config_files" is not sufficient to process empty list
+            if config_files is not None:
+                self._config_files = config_files
+            else:
+                self._config_files = CONFIG_FILES
+            if secure_files is not None:
+                self._secure_files = secure_files
+            else:
+                self._secure_files = SECURE_FILES
+            if vendor_files is not None:
+                self._vendor_files = vendor_files
+            else:
+                self._vendor_files = VENDOR_FILES
         else:
             self._config_files = []
             self._secure_files = []
@@ -250,6 +269,7 @@ class OpenStackConfig:
                 clouds=dict(defaults=dict(self.defaults)))
             self.default_cloud = 'defaults'
 
+        self._cache_auth = False
         self._cache_expiration_time = 0
         self._cache_path = CACHE_PATH
         self._cache_class = 'dogpile.cache.null'
@@ -258,6 +278,9 @@ class OpenStackConfig:
         self._influxdb_config = {}
         if 'cache' in self.cloud_config:
             cache_settings = _util.normalize_keys(self.cloud_config['cache'])
+
+            self._cache_auth = get_boolean(
+                cache_settings.get('auth', self._cache_auth))
 
             # expiration_time used to be 'max_age' but the dogpile setting
             # is expiration_time. Support max_age for backwards compat.
@@ -1019,6 +1042,12 @@ class OpenStackConfig:
                 or ('token' in config and config['token'])):
             config.setdefault('token', config.pop('auth_token', None))
 
+        # Infer passcode if it was given separately
+        # This is generally absolutely impractical to require setting passcode
+        # in the clouds.yaml
+        if 'auth' in config and 'passcode' in config:
+            config['auth']['passcode'] = config.pop('passcode', None)
+
         # These backwards compat values are only set via argparse. If it's
         # there, it's because it was passed in explicitly, and should win
         config = self._fix_backwards_api_timeout(config)
@@ -1122,6 +1151,21 @@ class OpenStackConfig:
         if not prefer_ipv6:
             force_ipv4 = True
 
+        # Override global metrics config with more specific per-cloud
+        # details.
+        metrics_config = config.get('metrics', {})
+        statsd_config = metrics_config.get('statsd', {})
+        statsd_host = statsd_config.get('host') or self._statsd_host
+        statsd_port = statsd_config.get('port') or self._statsd_port
+        statsd_prefix = statsd_config.get('prefix') or self._statsd_prefix
+        influxdb_config = metrics_config.get('influxdb', {})
+        if influxdb_config:
+            merged_influxdb = copy.deepcopy(self._influxdb_config)
+            merged_influxdb.update(influxdb_config)
+            influxdb_config = merged_influxdb
+        else:
+            influxdb_config = self._influxdb_config
+
         if cloud is None:
             cloud_name = ''
         else:
@@ -1137,16 +1181,17 @@ class OpenStackConfig:
             session_constructor=self._session_constructor,
             app_name=self._app_name,
             app_version=self._app_version,
+            cache_auth=self._cache_auth,
             cache_expiration_time=self._cache_expiration_time,
             cache_expirations=self._cache_expirations,
             cache_path=self._cache_path,
             cache_class=self._cache_class,
             cache_arguments=self._cache_arguments,
             password_callback=self._pw_callback,
-            statsd_host=self._statsd_host,
-            statsd_port=self._statsd_port,
-            statsd_prefix=self._statsd_prefix,
-            influxdb_config=self._influxdb_config,
+            statsd_host=statsd_host,
+            statsd_port=statsd_port,
+            statsd_prefix=statsd_prefix,
+            influxdb_config=influxdb_config,
         )
     # TODO(mordred) Backwards compat for OSC transition
     get_one_cloud = get_one
@@ -1242,6 +1287,7 @@ class OpenStackConfig:
             force_ipv4=force_ipv4,
             auth_plugin=auth_plugin,
             openstack_config=self,
+            cache_auth=self._cache_auth,
             cache_expiration_time=self._cache_expiration_time,
             cache_expirations=self._cache_expirations,
             cache_path=self._cache_path,

@@ -30,8 +30,8 @@ class Port(_base.NetworkResource, resource.TagMixin):
     _query_mapping = resource.QueryParameters(
         'binding:host_id', 'binding:profile', 'binding:vif_details',
         'binding:vif_type', 'binding:vnic_type',
-        'description', 'device_id', 'device_owner', 'fixed_ips', 'id',
-        'ip_address', 'mac_address', 'name', 'network_id', 'status',
+        'description', 'device_id', 'device_owner', 'fields', 'fixed_ips',
+        'id', 'ip_address', 'mac_address', 'name', 'network_id', 'status',
         'subnet_id',
         is_admin_state_up='admin_state_up',
         is_port_security_enabled='port_security_enabled',
@@ -78,6 +78,10 @@ class Port(_base.NetworkResource, resource.TagMixin):
     device_id = resource.Body('device_id')
     #: Device owner of this port (e.g. ``network:dhcp``).
     device_owner = resource.Body('device_owner')
+    #: Device profile of this port, refers to Cyborg device-profiles:
+    # https://docs.openstack.org/api-ref/accelerator/v2/index.html#
+    # device-profiles.
+    device_profile = resource.Body('device_profile')
     #: DNS assignment for the port.
     dns_assignment = resource.Body('dns_assignment')
     #: DNS domain assigned to the port.
