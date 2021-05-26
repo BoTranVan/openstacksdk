@@ -11,6 +11,7 @@
 # under the License.
 
 import collections
+import enum
 
 from openstack.baremetal.v1 import _common
 from openstack import exceptions
@@ -30,6 +31,24 @@ class ValidationResult:
     def __init__(self, result, reason):
         self.result = result
         self.reason = reason
+
+
+class PowerAction(enum.Enum):
+    """Mapping from an action to a target power state."""
+
+    POWER_ON = 'power on'
+    """Power on the node."""
+
+    POWER_OFF = 'power off'
+    """Power off the node (using hard power off)."""
+    REBOOT = 'rebooting'
+    """Reboot the node (using hard power off)."""
+
+    SOFT_POWER_OFF = 'soft power off'
+    """Power off the node using soft power off."""
+
+    SOFT_REBOOT = 'soft rebooting'
+    """Reboot the node using soft power off."""
 
 
 class WaitResult(collections.namedtuple('WaitResult',
@@ -72,8 +91,8 @@ class Node(_common.ListMixin, resource.Resource):
         is_maintenance='maintenance',
     )
 
-    # The retired and retired_reason fields introduced in 1.61 (Ussuri).
-    _max_microversion = '1.61'
+    # Provision state deploy_steps introduced in 1.69 (Wallaby).
+    _max_microversion = '1.69'
 
     # Properties
     #: The UUID of the allocation associated with this node. Added in API
@@ -327,7 +346,7 @@ class Node(_common.ListMixin, resource.Resource):
 
     def set_provision_state(self, session, target, config_drive=None,
                             clean_steps=None, rescue_password=None,
-                            wait=False, timeout=None):
+                            wait=False, timeout=None, deploy_steps=None):
         """Run an action modifying this node's provision state.
 
         This call is asynchronous, it will return success as soon as the Bare
@@ -347,10 +366,13 @@ class Node(_common.ListMixin, resource.Resource):
         :param wait: Whether to wait for the target state to be reached.
         :param timeout: Timeout (in seconds) to wait for the target state to be
             reached. If ``None``, wait without timeout.
+        :param deploy_steps: Deploy steps to execute, only valid for ``active``
+            and ``rebuild`` target.
 
         :return: This :class:`Node` instance.
-        :raises: ValueError if ``config_drive``, ``clean_steps`` or
-            ``rescue_password`` are provided with an invalid ``target``.
+        :raises: ValueError if ``config_drive``, ``clean_steps``,
+            ``deploy_steps`` or ``rescue_password`` are provided with an
+            invalid ``target``.
         :raises: :class:`~openstack.exceptions.ResourceFailure` if the node
             reaches an error state while waiting for the state.
         :raises: :class:`~openstack.exceptions.ResourceTimeout` if timeout
@@ -369,6 +391,9 @@ class Node(_common.ListMixin, resource.Resource):
             elif target == 'rebuild':
                 version = _common.CONFIG_DRIVE_REBUILD_VERSION
 
+        if deploy_steps:
+            version = _common.DEPLOY_STEPS_VERSION
+
         version = self._assert_microversion_for(session, 'commit', version)
 
         body = {'target': target}
@@ -384,6 +409,12 @@ class Node(_common.ListMixin, resource.Resource):
                 raise ValueError('Clean steps can only be provided with '
                                  '"clean" target')
             body['clean_steps'] = clean_steps
+
+        if deploy_steps is not None:
+            if target not in ('active', 'rebuild'):
+                raise ValueError('Deploy steps can only be provided with '
+                                 '"deploy" and "rebuild" target')
+            body['deploy_steps'] = deploy_steps
 
         if rescue_password is not None:
             if target != 'rescue':
@@ -415,6 +446,34 @@ class Node(_common.ListMixin, resource.Resource):
                                                  timeout=timeout)
         else:
             return self.fetch(session)
+
+    def wait_for_power_state(self, session, expected_state, timeout=None):
+        """Wait for the node to reach the expected power state.
+
+        :param session: The session to use for making this request.
+        :type session: :class:`~keystoneauth1.adapter.Adapter`
+        :param expected_state: The expected power state to reach.
+        :param timeout: If ``wait`` is set to ``True``, specifies how much (in
+            seconds) to wait for the expected state to be reached. The value of
+            ``None`` (the default) means no client-side timeout.
+
+        :return: This :class:`Node` instance.
+        :raises: :class:`~openstack.exceptions.ResourceTimeout` on timeout.
+        """
+        for count in utils.iterate_timeout(
+                timeout,
+                "Timeout waiting for node %(node)s to reach "
+                "power state '%(state)s'" % {'node': self.id,
+                                             'state': expected_state}):
+            self.fetch(session)
+            if self.power_state == expected_state:
+                return self
+
+            session.log.debug(
+                'Still waiting for node %(node)s to reach power state '
+                '"%(target)s", the current state is "%(state)s"',
+                {'node': self.id, 'target': expected_state,
+                 'state': self.power_state})
 
     def wait_for_provision_state(self, session, expected_state, timeout=None,
                                  abort_on_failed_state=True):
@@ -532,8 +591,7 @@ class Node(_common.ListMixin, resource.Resource):
                 "the last error is %(error)s" %
                 {'node': self.id, 'error': self.last_error})
 
-    # TODO(dtantsur): waiting for power state
-    def set_power_state(self, session, target):
+    def set_power_state(self, session, target, wait=False, timeout=None):
         """Run an action modifying this node's power state.
 
         This call is asynchronous, it will return success as soon as the Bare
@@ -541,9 +599,22 @@ class Node(_common.ListMixin, resource.Resource):
 
         :param session: The session to use for making this request.
         :type session: :class:`~keystoneauth1.adapter.Adapter`
-        :param target: Target power state, e.g. "rebooting", "power on".
-            See the Bare Metal service documentation for available actions.
+        :param target: Target power state, as a :class:`PowerAction` or
+            a string.
+        :param wait: Whether to wait for the expected power state to be
+            reached.
+        :param timeout: Timeout (in seconds) to wait for the target state to be
+            reached. If ``None``, wait without timeout.
         """
+        if isinstance(target, PowerAction):
+            target = target.value
+        if wait:
+            try:
+                expected = _common.EXPECTED_POWER_STATES[target]
+            except KeyError:
+                raise ValueError("Cannot use target power state %s with wait, "
+                                 "the expected state is not known" % target)
+
         session = self._get_session(session)
 
         if target.startswith("soft "):
@@ -566,6 +637,9 @@ class Node(_common.ListMixin, resource.Resource):
         msg = ("Failed to set power state for bare metal node {node} "
                "to {target}".format(node=self.id, target=target))
         exceptions.raise_from_response(response, error_message=msg)
+
+        if wait:
+            self.wait_for_power_state(session, expected, timeout=timeout)
 
     def attach_vif(self, session, vif_id, retry_on_conflict=True):
         """Attach a VIF to the node.
@@ -857,6 +931,55 @@ class Node(_common.ListMixin, resource.Resource):
         exceptions.raise_from_response(response, error_message=msg)
 
         self.traits = traits
+
+    def call_vendor_passthru(self, session, verb, method, body=None):
+        """Call a vendor passthru method.
+
+        :param session: The session to use for making this request.
+        :param verb: The HTTP verb, one of GET, SET, POST, DELETE.
+        :param method: The method to call using vendor_passthru.
+        :param body: The JSON body in the HTTP call.
+        :returns: The HTTP response.
+        """
+        session = self._get_session(session)
+        version = self._get_microversion_for(session, 'commit')
+        request = self._prepare_request(requires_id=True)
+        request.url = utils.urljoin(request.url, 'vendor_passthru?method={}'
+                                    .format(method))
+
+        call = getattr(session, verb.lower())
+        response = call(
+            request.url, json=body,
+            headers=request.headers, microversion=version,
+            retriable_status_codes=_common.RETRIABLE_STATUS_CODES)
+
+        msg = ("Failed to call vendor_passthru for node {node}, verb {verb}"
+               " and method {method}"
+               .format(node=self.id, verb=verb, method=method))
+        exceptions.raise_from_response(response, error_message=msg)
+
+        return response
+
+    def list_vendor_passthru(self, session):
+        """List vendor passthru methods.
+
+        :param session: The session to use for making this request.
+        :returns: The HTTP response.
+        """
+        session = self._get_session(session)
+        version = self._get_microversion_for(session, 'fetch')
+        request = self._prepare_request(requires_id=True)
+        request.url = utils.urljoin(request.url, 'vendor_passthru/methods')
+
+        response = session.get(
+            request.url, headers=request.headers, microversion=version,
+            retriable_status_codes=_common.RETRIABLE_STATUS_CODES)
+
+        msg = ("Failed to list vendor_passthru methods for node {node}"
+               .format(node=self.id))
+        exceptions.raise_from_response(response, error_message=msg)
+
+        return response.json()
 
     def patch(self, session, patch=None, prepend_key=True, has_body=True,
               retry_on_conflict=None, base_path=None, reset_interfaces=None):

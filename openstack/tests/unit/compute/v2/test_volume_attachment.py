@@ -10,14 +10,16 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from openstack.compute.v2 import volume_attachment
 from openstack.tests.unit import base
 
-from openstack.compute.v2 import volume_attachment
 
 EXAMPLE = {
     'device': '1',
     'id': '2',
     'volume_id': '3',
+    'tag': '4',
+    'delete_on_termination': 'true',
 }
 
 
@@ -44,3 +46,6 @@ class TestServerInterface(base.TestCase):
         self.assertEqual(EXAMPLE['device'], sot.device)
         self.assertEqual(EXAMPLE['id'], sot.id)
         self.assertEqual(EXAMPLE['volume_id'], sot.volume_id)
+        self.assertEqual(EXAMPLE['tag'], sot.tag)
+        self.assertEqual(EXAMPLE['delete_on_termination'],
+                         sot.delete_on_termination)

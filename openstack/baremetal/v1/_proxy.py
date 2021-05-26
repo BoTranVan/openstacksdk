@@ -13,11 +13,14 @@
 from openstack.baremetal.v1 import _common
 from openstack.baremetal.v1 import allocation as _allocation
 from openstack.baremetal.v1 import chassis as _chassis
+from openstack.baremetal.v1 import conductor as _conductor
+from openstack.baremetal.v1 import deploy_templates as _deploytemplates
 from openstack.baremetal.v1 import driver as _driver
 from openstack.baremetal.v1 import node as _node
 from openstack.baremetal.v1 import port as _port
 from openstack.baremetal.v1 import port_group as _portgroup
 from openstack.baremetal.v1 import volume_connector as _volumeconnector
+from openstack.baremetal.v1 import volume_target as _volumetarget
 from openstack import exceptions
 from openstack import proxy
 from openstack import utils
@@ -165,19 +168,20 @@ class Proxy(proxy.Proxy):
         return self._delete(_chassis.Chassis, chassis,
                             ignore_missing=ignore_missing)
 
-    def drivers(self, details=False):
+    def drivers(self, details=False, **query):
         """Retrieve a generator of drivers.
 
         :param bool details: A boolean indicating whether the detailed
             information for every driver should be returned.
+        :param kwargs query: Optional query parameters to be sent to limit
+            the resources being returned.
         :returns: A generator of driver instances.
         """
-        kwargs = {}
         # NOTE(dtantsur): details are available starting with API microversion
         # 1.30. Thus we do not send any value if not needed.
         if details:
-            kwargs['details'] = True
-        return self._list(_driver.Driver, **kwargs)
+            query['details'] = True
+        return self._list(_driver.Driver, **query)
 
     def get_driver(self, driver):
         """Get a specific driver.
@@ -190,6 +194,35 @@ class Proxy(proxy.Proxy):
             driver matching the name could be found.
         """
         return self._get(_driver.Driver, driver)
+
+    def list_driver_vendor_passthru(self, driver):
+        """Get driver's vendor_passthru methods.
+
+        :param driver: The value can be the name of a driver or a
+            :class:`~openstack.baremetal.v1.driver.Driver` instance.
+
+        :returns: One :dict: of vendor methods with corresponding usages
+        :raises: :class:`~openstack.exceptions.ResourceNotFound` when no
+            driver matching the name could be found.
+        """
+        driver = self.get_driver(driver)
+        return driver.list_vendor_passthru(self)
+
+    def call_driver_vendor_passthru(self, driver,
+                                    verb: str, method: str, body=None):
+        """Call driver's vendor_passthru method.
+
+        :param driver: The value can be the name of a driver or a
+            :class:`~openstack.baremetal.v1.driver.Driver` instance.
+        :param verb: One of GET, POST, PUT, DELETE,
+            depending on the driver and method.
+        :param method: Name of vendor method.
+        :param body: passed to the vendor function as json body.
+
+        :returns: Server response
+        """
+        driver = self.get_driver(driver)
+        return driver.call_vendor_passthru(self, verb, method, body)
 
     def nodes(self, details=False, **query):
         """Retrieve a generator of nodes.
@@ -231,7 +264,7 @@ class Proxy(proxy.Proxy):
               provided as the ``sort_key``.
             * ``sort_key``: Sorts the response by the this attribute value.
               Default is ``id``. You can specify multiple pairs of sort
-              key and sort direction query parameters. If you omit the
+              key and sort direction query pa rameters. If you omit the
               sort direction in a pair, the API uses the natural sorting
               direction of the server attribute that is provided as the
               ``sort_key``.
@@ -324,7 +357,7 @@ class Proxy(proxy.Proxy):
 
     def set_node_provision_state(self, node, target, config_drive=None,
                                  clean_steps=None, rescue_password=None,
-                                 wait=False, timeout=None):
+                                 wait=False, timeout=None, deploy_steps=None):
         """Run an action modifying node's provision state.
 
         This call is asynchronous, it will return success as soon as the Bare
@@ -347,16 +380,20 @@ class Proxy(proxy.Proxy):
         :param timeout: If ``wait`` is set to ``True``, specifies how much (in
             seconds) to wait for the expected state to be reached. The value of
             ``None`` (the default) means no client-side timeout.
+        :param deploy_steps: Deploy steps to execute, only valid for ``active``
+            and ``rebuild`` target.
 
         :returns: The updated :class:`~openstack.baremetal.v1.node.Node`
-        :raises: ValueError if ``config_drive``, ``clean_steps`` or
-            ``rescue_password`` are provided with an invalid ``target``.
+        :raises: ValueError if ``config_drive``, ``clean_steps``,
+            ``deploy_steps`` or ``rescue_password`` are provided with an
+            invalid ``target``.
         """
         res = self._get_resource(_node.Node, node)
         return res.set_provision_state(self, target, config_drive=config_drive,
                                        clean_steps=clean_steps,
                                        rescue_password=rescue_password,
-                                       wait=wait, timeout=timeout)
+                                       wait=wait, timeout=timeout,
+                                       deploy_steps=deploy_steps)
 
     def set_node_boot_device(self, node, boot_device, persistent=False):
         """Set node boot device
@@ -442,7 +479,7 @@ class Proxy(proxy.Proxy):
             else:
                 return _node.WaitResult(finished, failed, remaining)
 
-    def set_node_power_state(self, node, target):
+    def set_node_power_state(self, node, target, wait=False, timeout=None):
         """Run an action modifying node's power state.
 
         This call is asynchronous, it will return success as soon as the Bare
@@ -450,10 +487,30 @@ class Proxy(proxy.Proxy):
 
         :param node: The value can be the name or ID of a node or a
             :class:`~openstack.baremetal.v1.node.Node` instance.
-        :param target: Target power state, e.g. "rebooting", "power on".
-            See the Bare Metal service documentation for available actions.
+        :param target: Target power state, one of
+            :class:`~openstack.baremetal.v1.node.PowerAction` or a string.
+        :param wait: Whether to wait for the node to get into the expected
+            state.
+        :param timeout: If ``wait`` is set to ``True``, specifies how much (in
+            seconds) to wait for the expected state to be reached. The value of
+            ``None`` (the default) means no client-side timeout.
         """
-        self._get_resource(_node.Node, node).set_power_state(self, target)
+        self._get_resource(_node.Node, node).set_power_state(
+            self, target, wait=wait, timeout=timeout)
+
+    def wait_for_node_power_state(self, node, expected_state, timeout=None):
+        """Wait for the node to reach the power state.
+
+        :param node: The value can be the name or ID of a node or a
+            :class:`~openstack.baremetal.v1.node.Node` instance.
+        :param timeout: How much (in seconds) to wait for the target state
+            to be reached. The value of ``None`` (the default) means
+            no timeout.
+
+        :returns: The updated :class:`~openstack.baremetal.v1.node.Node`
+        """
+        res = self._get_resource(_node.Node, node)
+        return res.wait_for_power_state(self, expected_state, timeout=timeout)
 
     def wait_for_node_reservation(self, node, timeout=None):
         """Wait for a lock on the node to be released.
@@ -991,6 +1048,25 @@ class Proxy(proxy.Proxy):
         res = self._get_resource(_node.Node, node)
         return res.remove_trait(self, trait, ignore_missing=ignore_missing)
 
+    def call_node_vendor_passthru(self, node, verb, method, body=None):
+        """Calls vendor_passthru for a node.
+
+        :param session: The session to use for making this request.
+        :param verb: The HTTP verb, one of GET, SET, POST, DELETE.
+        :param method: The method to call using vendor_passthru.
+        :param body: The JSON body in the HTTP call.
+        """
+        res = self._get_resource(_node.Node, node)
+        return res.call_vendor_passthru(self, verb, method, body)
+
+    def list_node_vendor_passthru(self, node):
+        """Lists vendor_passthru for a node.
+
+        :param session: The session to use for making this request.
+        """
+        res = self._get_resource(_node.Node, node)
+        return res.list_vendor_passthru(self)
+
     def set_node_traits(self, node, traits):
         """Set traits for a node.
 
@@ -1146,3 +1222,277 @@ class Proxy(proxy.Proxy):
         """
         return self._delete(_volumeconnector.VolumeConnector,
                             volume_connector, ignore_missing=ignore_missing)
+
+    def volume_targets(self, details=False, **query):
+        """Retrieve a generator of volume_target.
+
+        :param details: A boolean indicating whether the detailed information
+                        for every volume_target should be returned.
+        :param dict query: Optional query parameters to be sent to restrict
+            the volume_targets returned. Available parameters include:
+
+            * ``fields``: A list containing one or more fields to be returned
+              in the response. This may lead to some performance gain
+              because other fields of the resource are not refreshed.
+            * ``limit``: Requests at most the specified number of
+              volume_connector be returned from the query.
+            * ``marker``: Specifies the ID of the last-seen volume_target.
+              Use the ``limit`` parameter to make an initial limited request
+              and use the ID of the last-seen volume_target from the
+              response as the ``marker`` value in subsequent limited request.
+            * ``node``:only return the ones associated with this specific node
+              (name or UUID), or an empty set if not found.
+            * ``sort_dir``:Sorts the response by the requested sort direction.
+              A valid value is ``asc`` (ascending) or ``desc``
+              (descending). Default is ``asc``. You can specify multiple
+              pairs of sort key and sort direction query parameters. If
+              you omit the sort direction in a pair, the API uses the
+              natural sorting direction of the server attribute that is
+              provided as the ``sort_key``.
+            * ``sort_key``: Sorts the response by the this attribute value.
+              Default is ``id``. You can specify multiple pairs of sort
+              key and sort direction query parameters. If you omit the
+              sort direction in a pair, the API uses the natural sorting
+              direction of the server attribute that is provided as the
+              ``sort_key``.
+
+        :returns: A generator of volume_target instances.
+        """
+        if details:
+            query['detail'] = True
+        return _volumetarget.VolumeTarget.list(self, **query)
+
+    def create_volume_target(self, **attrs):
+        """Create a new volume_target from attributes.
+
+        :param dict attrs: Keyword arguments that will be used to create a
+            :class:
+            `~openstack.baremetal.v1.volume_target.VolumeTarget`.
+
+        :returns: The results of volume_target creation.
+        :rtype::class:
+            `~openstack.baremetal.v1.volume_target.VolumeTarget`.
+        """
+        return self._create(_volumetarget.VolumeTarget, **attrs)
+
+    def find_volume_target(self, vt_id, ignore_missing=True):
+        """Find a single volume target.
+
+        :param str vt_id: The ID of a volume target.
+
+        :param bool ignore_missing: When set to ``False``, an exception of
+            :class:`~openstack.exceptions.ResourceNotFound` will be raised
+            when the volume connector does not exist.  When set to `True``,
+            None will be returned when attempting to find a nonexistent
+            volume target.
+        :returns: One :class:
+            `~openstack.baremetal.v1.volumetarget.VolumeTarget`
+            object or None.
+        """
+        return self._find(_volumetarget.VolumeTarget, vt_id,
+                          ignore_missing=ignore_missing)
+
+    def get_volume_target(self, volume_target, fields=None):
+        """Get a specific volume_target.
+
+        :param volume_target: The value can be the ID of a
+            volume_target or a :class:
+            `~openstack.baremetal.v1.volume_target.VolumeTarget
+            instance.`
+        :param fields: Limit the resource fields to fetch.`
+
+        :returns: One
+            :class:
+            `~openstack.baremetal.v1.volume_target.VolumeTarget`
+        :raises: :class:`~openstack.exceptions.ResourceNotFound` when no
+            volume_target matching the name or ID could be found.`
+        """
+        return self._get_with_fields(_volumetarget.VolumeTarget,
+                                     volume_target,
+                                     fields=fields)
+
+    def update_volume_target(self, volume_target, **attrs):
+        """Update a volume_target.
+
+        :param volume_target:Either the ID of a volume_target
+        or an instance of
+        :class:`~openstack.baremetal.v1.volume_target.VolumeTarget.`
+        :param dict attrs: The attributes to update on the
+        volume_target represented by the ``volume_target`` parameter.`
+
+        :returns: The updated volume_target.
+        :rtype::class:
+            `~openstack.baremetal.v1.volume_target.VolumeTarget.`
+        """
+        return self._update(_volumetarget.VolumeTarget,
+                            volume_target, **attrs)
+
+    def patch_volume_target(self, volume_target, patch):
+        """Apply a JSON patch to the volume_target.
+
+        :param volume_target: The value can be the ID of a
+            volume_target or a :class:
+            `~openstack.baremetal.v1.volume_target.VolumeTarget`
+            instance.
+        :param patch: JSON patch to apply.
+
+        :returns: The updated volume_target.
+        :rtype::class:
+            `~openstack.baremetal.v1.volume_target.VolumeTarget.`
+        """
+        return self._get_resource(_volumetarget.VolumeTarget,
+                                  volume_target).patch(self, patch)
+
+    def delete_volume_target(self, volume_target,
+                             ignore_missing=True):
+        """Delete an volume_target.
+
+        :param volume_target: The value can be either the ID of a
+            volume_target.VolumeTarget or a
+            :class:
+            `~openstack.baremetal.v1.volume_target.VolumeTarget`
+            instance.
+        :param bool ignore_missing: When set to ``False``, an exception
+            :class:`~openstack.exceptions.ResourceNotFound` will be raised
+            when the volume_target could not be found.
+            When set to ``True``, no exception will be raised when
+            attempting to delete a non-existent volume_target.
+
+        :returns: The instance of the volume_target which was deleted.
+        :rtype::class:
+            `~openstack.baremetal.v1.volume_target.VolumeTarget`.
+        """
+        return self._delete(_volumetarget.VolumeTarget,
+                            volume_target, ignore_missing=ignore_missing)
+
+    def deploy_templates(self, details=False, **query):
+        """Retrieve a generator of deploy_templates.
+
+        :param details: A boolean indicating whether the detailed information
+                        for every deploy_templates should be returned.
+        :param dict query: Optional query parameters to be sent to
+                           restrict the deploy_templates to be returned.
+
+        :returns: A generator of Deploy templates instances.
+        """
+        if details:
+            query['detail'] = True
+        return _deploytemplates.DeployTemplate.list(self, **query)
+
+    def create_deploy_template(self, **attrs):
+        """Create a new deploy_template from attributes.
+
+        :param dict attrs: Keyword arguments that will be used to create a
+                :class:`~openstack.baremetal.v1.deploy_templates.DeployTemplate`.
+
+        :returns: The results of deploy_template creation.
+        :rtype:
+                :class:`~openstack.baremetal.v1.deploy_templates.DeployTemplate`.
+        """
+        return self._create(_deploytemplates.DeployTemplate, **attrs)
+
+    def update_deploy_template(self, deploy_template, **attrs):
+        """Update a deploy_template.
+
+        :param deploy_template: Either the ID of a deploy_template,
+                                or an instance of
+                                :class:`~openstack.baremetal.v1.deploy_templates.DeployTemplate`.
+        :param dict attrs: The attributes to update on
+                           the deploy_template represented
+                           by the ``deploy_template`` parameter.
+
+        :returns: The updated deploy_template.
+        :rtype::class:
+                       `~openstack.baremetal.v1.deploy_templates.DeployTemplate`
+        """
+        return self._update(_deploytemplates.DeployTemplate,
+                            deploy_template, **attrs)
+
+    def delete_deploy_template(self, deploy_template,
+                               ignore_missing=True):
+        """Delete a deploy_template.
+
+        :param deploy_template:The value can be
+                               either the ID of a deploy_template or a
+        :class:`~openstack.baremetal.v1.deploy_templates.DeployTemplate`
+                instance.
+
+        :param bool ignore_missing: When set to ``False``,
+            an exception:class:`~openstack.exceptions.ResourceNotFound`
+            will be raised when the deploy_template
+            could not be found.
+            When set to ``True``, no
+            exception will be raised when attempting
+            to delete a non-existent
+            deploy_template.
+
+        :returns: The instance of the deploy_template which was deleted.
+        :rtype::class:
+                        `~openstack.baremetal.v1.deploy_templates.DeployTemplate`.
+        """
+
+        return self._delete(_deploytemplates.DeployTemplate,
+                            deploy_template, ignore_missing=ignore_missing)
+
+    def get_deploy_template(self, deploy_template, fields=None):
+        """Get a specific deployment template.
+
+        :param deploy_template: The value can be the name or ID
+            of a deployment template
+            :class:`~openstack.baremetal.v1.deploy_templates.DeployTemplate`
+            instance.
+
+        :param fields: Limit the resource fields to fetch.
+
+        :returns: One
+                  :class:`~openstack.baremetal.v1.deploy_templates.DeployTemplate`
+        :raises: :class:`~openstack.exceptions.ResourceNotFound`
+                        when no deployment template matching the name or
+                        ID could be found.
+        """
+        return self._get_with_fields(_deploytemplates.DeployTemplate,
+                                     deploy_template, fields=fields)
+
+    def patch_deploy_template(self, deploy_template, patch):
+        """Apply a JSON patch to the deploy_templates.
+
+        :param deploy_templates: The value can be the ID of a
+            deploy_template or a
+            :class:`~openstack.baremetal.v1.deploy_templates.DeployTemplate`
+            instance.
+
+        :param patch: JSON patch to apply.
+
+        :returns: The updated deploy_template.
+        :rtype::class:
+                        `~openstack.baremetal.v1.deploy_templates.DeployTemplate`
+        """
+        return self._get_resource(_deploytemplates.DeployTemplate,
+                                  deploy_template).patch(self, patch)
+
+    def conductors(self, details=False, **query):
+        """Retrieve a generator of conductors.
+
+        :param bool details: A boolean indicating whether the detailed
+            information for every conductor should be returned.
+
+        :returns: A generator of conductor instances.
+        """
+
+        if details:
+            query['details'] = True
+        return _conductor.Conductor.list(self, **query)
+
+    def get_conductor(self, conductor, fields=None):
+        """Get a specific conductor.
+
+        :param conductor: The value can be the name of a conductor or a
+            :class:`~openstack.baremetal.v1.conductor.Conductor` instance.
+
+        :returns: One :class:`~openstack.baremetal.v1.conductor.Conductor`
+
+        :raises: :class:`~openstack.exceptions.ResourceNotFound` when no
+            conductor matching the name could be found.
+        """
+        return self._get_with_fields(_conductor.Conductor,
+                                     conductor, fields=fields)

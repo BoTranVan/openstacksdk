@@ -12,8 +12,12 @@
 
 from unittest import mock
 
+from keystoneauth1 import adapter
+
 from openstack.compute.v2 import aggregate
 from openstack.tests.unit import base
+
+IDENTIFIER = 'IDENTIFIER'
 
 EXAMPLE = {
     "name": "m-family",
@@ -24,6 +28,7 @@ EXAMPLE = {
     "hosts": ["oscomp-m001", "oscomp-m002", "oscomp-m003"],
     "deleted_at": None,
     "id": 4,
+    "uuid": IDENTIFIER,
     "metadata": {"type": "public", "family": "m-family"}
 }
 
@@ -37,7 +42,7 @@ class TestAggregate(base.TestCase):
         self.resp.json = mock.Mock(return_value=self.resp.body)
         self.resp.status_code = 200
         self.resp.headers = {'Accept': ''}
-        self.sess = mock.Mock()
+        self.sess = mock.Mock(spec=adapter.Adapter)
         self.sess.post = mock.Mock(return_value=self.resp)
 
     def test_basic(self):
@@ -55,9 +60,13 @@ class TestAggregate(base.TestCase):
         sot = aggregate.Aggregate(**EXAMPLE)
         self.assertEqual(EXAMPLE['name'], sot.name)
         self.assertEqual(EXAMPLE['availability_zone'], sot.availability_zone)
-        self.assertEqual(EXAMPLE['deleted'], sot.deleted)
+        self.assertEqual(EXAMPLE['deleted'], sot.is_deleted)
+        self.assertEqual(EXAMPLE['deleted_at'], sot.deleted_at)
+        self.assertEqual(EXAMPLE['created_at'], sot.created_at)
+        self.assertEqual(EXAMPLE['updated_at'], sot.updated_at)
         self.assertEqual(EXAMPLE['hosts'], sot.hosts)
         self.assertEqual(EXAMPLE['id'], sot.id)
+        self.assertEqual(EXAMPLE['uuid'], sot.uuid)
         self.assertDictEqual(EXAMPLE['metadata'], sot.metadata)
 
     def test_add_host(self):
@@ -67,9 +76,8 @@ class TestAggregate(base.TestCase):
 
         url = 'os-aggregates/4/action'
         body = {"add_host": {"host": "host1"}}
-        headers = {'Accept': ''}
         self.sess.post.assert_called_with(
-            url, json=body, headers=headers, microversion=None)
+            url, json=body, microversion=None)
 
     def test_remove_host(self):
         sot = aggregate.Aggregate(**EXAMPLE)
@@ -78,9 +86,8 @@ class TestAggregate(base.TestCase):
 
         url = 'os-aggregates/4/action'
         body = {"remove_host": {"host": "host1"}}
-        headers = {'Accept': ''}
         self.sess.post.assert_called_with(
-            url, json=body, headers=headers, microversion=None)
+            url, json=body, microversion=None)
 
     def test_set_metadata(self):
         sot = aggregate.Aggregate(**EXAMPLE)
@@ -89,6 +96,15 @@ class TestAggregate(base.TestCase):
 
         url = 'os-aggregates/4/action'
         body = {"set_metadata": {"metadata": {"key: value"}}}
-        headers = {'Accept': ''}
         self.sess.post.assert_called_with(
-            url, json=body, headers=headers, microversion=None)
+            url, json=body, microversion=None)
+
+    def test_precache_image(self):
+        sot = aggregate.Aggregate(**EXAMPLE)
+
+        sot.precache_images(self.sess, ['1'])
+
+        url = 'os-aggregates/4/images'
+        body = {"cache": ['1']}
+        self.sess.post.assert_called_with(
+            url, json=body, microversion=sot._max_microversion)

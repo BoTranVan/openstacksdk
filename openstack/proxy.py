@@ -10,14 +10,15 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import urllib
+from urllib.parse import urlparse
+
 try:
     import simplejson
     JSONDecodeError = simplejson.scanner.JSONDecodeError
 except ImportError:
     JSONDecodeError = ValueError
 import iso8601
-import urllib
-
 from keystoneauth1 import adapter
 
 from openstack import _log
@@ -213,12 +214,12 @@ class Proxy(adapter.Adapter):
         key = '.'.join(
             [self._statsd_prefix, self.service_type, method]
             + name_parts)
-        if response is not None:
-            duration = int(response.elapsed.microseconds / 1000)
-            self._statsd_client.timing(key, duration)
-            self._statsd_client.incr(key)
-        elif exc is not None:
-            self._statsd_client.incr('%s.failed' % key)
+        with self._statsd_client.pipeline() as pipe:
+            if response is not None:
+                pipe.timing(key, response.elapsed)
+                pipe.incr(key)
+            elif exc is not None:
+                pipe.incr('%s.failed' % key)
 
     def _report_stats_prometheus(self, response, url=None, method=None,
                                  exc=None):
@@ -226,16 +227,19 @@ class Proxy(adapter.Adapter):
             url = response.request.url
         if response is not None and not method:
             method = response.request.method
+        parsed_url = urlparse(url)
+        endpoint = "{}://{}{}".format(
+            parsed_url.scheme, parsed_url.netloc, parsed_url.path)
         if response is not None:
             labels = dict(
                 method=method,
-                endpoint=url,
+                endpoint=endpoint,
                 service_type=self.service_type,
                 status_code=response.status_code,
             )
             self._prometheus_counter.labels(**labels).inc()
             self._prometheus_histogram.labels(**labels).observe(
-                response.elapsed.microseconds / 1000)
+                response.elapsed.total_seconds() * 1000)
 
     def _report_stats_influxdb(self, response, url=None, method=None,
                                exc=None):
@@ -257,7 +261,7 @@ class Proxy(adapter.Adapter):
             attempted=1
         )
         if response is not None:
-            fields['duration'] = int(response.elapsed.microseconds / 1000)
+            fields['duration'] = int(response.elapsed.total_seconds() * 1000)
             tags['status_code'] = str(response.status_code)
             # Note(gtema): emit also status_code as a value (counter)
             fields[str(response.status_code)] = 1
@@ -306,14 +310,13 @@ class Proxy(adapter.Adapter):
         """Get a resource object to work on
 
         :param resource_type: The type of resource to operate on. This should
-                              be a subclass of
-                              :class:`~openstack.resource.Resource` with a
-                              ``from_id`` method.
+            be a subclass of :class:`~openstack.resource.Resource` with a
+            ``from_id`` method.
         :param value: The ID of a resource or an object of ``resource_type``
-                      class if using an existing instance, or ``munch.Munch``,
-                      or None to create a new instance.
-        :param path_args: A dict containing arguments for forming the request
-                          URL, if needed.
+            class if using an existing instance, or ``munch.Munch``,
+            or None to create a new instance.
+        :param attrs: A dict containing arguments for forming the request
+            URL, if needed.
         """
         conn = self._get_connection()
         if value is None:
@@ -370,6 +373,7 @@ class Proxy(adapter.Adapter):
                                   ignore_missing=ignore_missing,
                                   **attrs)
 
+    # TODO(stephenfin): Update docstring for attrs since it's a lie
     @_check_resource(strict=False)
     def _delete(self, resource_type, value, ignore_missing=True, **attrs):
         """Delete a resource
@@ -508,16 +512,13 @@ class Proxy(adapter.Adapter):
             error_message="No {resource_type} found for {value}".format(
                 resource_type=resource_type.__name__, value=value))
 
-    def _list(self, resource_type, value=None,
+    def _list(self, resource_type,
               paginated=True, base_path=None, **attrs):
         """List a resource
 
-        :param resource_type: The type of resource to delete. This should
+        :param resource_type: The type of resource to list. This should
                               be a :class:`~openstack.resource.Resource`
                               subclass with a ``from_id`` method.
-        :param value: The resource to list. It can be the ID of a resource, or
-                      a :class:`~openstack.resource.Resource` object. When set
-                      to None, a new bare resource is created.
         :param bool paginated: When set to ``False``, expect all of the data
                                to be returned in one response. When set to
                                ``True``, the resource supports data being

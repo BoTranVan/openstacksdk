@@ -15,6 +15,7 @@
 import argparse
 import copy
 import os
+from unittest import mock
 
 import fixtures
 import testtools
@@ -91,6 +92,7 @@ class TestConfig(base.TestCase):
             }
         })
         c = config.OpenStackConfig(config_files=[single_conf],
+                                   secure_files=[],
                                    vendor_files=[self.vendor_yaml])
         cc = c.get_one()
         self.assertEqual(cc.name, 'single')
@@ -180,6 +182,7 @@ class TestConfig(base.TestCase):
             }
         })
         c = config.OpenStackConfig(config_files=[single_conf],
+                                   secure_files=[],
                                    vendor_files=[self.vendor_yaml])
         cc = c.get_one()
         self.assertEqual('http://example.com/v2', cc.get_endpoint('identity'))
@@ -201,6 +204,29 @@ class TestConfig(base.TestCase):
         self.assertEqual('awesome-domain', cc.auth['project_domain_id'])
         self.assertNotIn('domain_id', cc.auth)
         self.assertNotIn('domain_id', cc)
+
+    def test_get_one_infer_passcode(self):
+        single_conf = base._write_yaml({
+            'clouds': {
+                'mfa': {
+                    'auth_type': 'v3multifactor',
+                    'auth_methods': ['v3password', 'v3totp'],
+                    'auth': {
+                        'auth_url': 'fake_url',
+                        'username': 'testuser',
+                        'password': 'testpass',
+                        'project_name': 'testproject',
+                        'project_domain_name': 'projectdomain',
+                        'user_domain_name': 'udn'
+                    },
+                    'region_name': 'test-region',
+                }
+            }
+        })
+
+        c = config.OpenStackConfig(config_files=[single_conf])
+        cc = c.get_one(cloud='mfa', passcode='123')
+        self.assertEqual('123', cc.auth['passcode'])
 
     def test_get_one_with_hyphenated_project_id(self):
         c = config.OpenStackConfig(config_files=[self.cloud_yaml],
@@ -310,7 +336,7 @@ class TestConfig(base.TestCase):
     def test_get_cloud_names(self):
         c = config.OpenStackConfig(config_files=[self.cloud_yaml],
                                    secure_files=[self.no_yaml])
-        self.assertEqual(
+        self.assertCountEqual(
             ['_test-cloud-domain-id_',
              '_test-cloud-domain-scoped_',
              '_test-cloud-int-project_',
@@ -320,8 +346,9 @@ class TestConfig(base.TestCase):
              '_test_cloud_hyphenated',
              '_test_cloud_no_vendor',
              '_test_cloud_regions',
+             '_test-cloud-override-metrics',
              ],
-            sorted(c.get_cloud_names()))
+            c.get_cloud_names())
         c = config.OpenStackConfig(config_files=[self.no_yaml],
                                    vendor_files=[self.no_yaml],
                                    secure_files=[self.no_yaml])
@@ -462,6 +489,107 @@ class TestConfig(base.TestCase):
         self.assertRaises(
             exceptions.ConfigException, c._get_region,
             cloud='_test_cloud', region_name='region1')
+
+    @mock.patch('openstack.config.cloud_region.keyring')
+    @mock.patch(
+        'keystoneauth1.identity.base.BaseIdentityPlugin.set_auth_state')
+    def test_load_auth_cache_not_found(self, ks_mock, kr_mock):
+        c = config.OpenStackConfig(
+            config_files=[self.cloud_yaml], secure_files=[])
+        c._cache_auth = True
+
+        kr_mock.get_password = mock.Mock(side_effect=[RuntimeError])
+
+        region = c.get_one('_test-cloud_')
+        kr_mock.get_password.assert_called_with(
+            'openstacksdk', region._auth.get_cache_id())
+        ks_mock.assert_not_called()
+
+    @mock.patch('openstack.config.cloud_region.keyring')
+    @mock.patch(
+        'keystoneauth1.identity.base.BaseIdentityPlugin.set_auth_state')
+    def test_load_auth_cache_found(self, ks_mock, kr_mock):
+        c = config.OpenStackConfig(
+            config_files=[self.cloud_yaml], secure_files=[])
+        c._cache_auth = True
+        fake_auth = {'a': 'b'}
+
+        kr_mock.get_password = mock.Mock(return_value=fake_auth)
+
+        region = c.get_one('_test-cloud_')
+        kr_mock.get_password.assert_called_with(
+            'openstacksdk', region._auth.get_cache_id())
+        ks_mock.assert_called_with(fake_auth)
+
+    @mock.patch('openstack.config.cloud_region.keyring')
+    def test_set_auth_cache(self, kr_mock):
+        c = config.OpenStackConfig(
+            config_files=[self.cloud_yaml], secure_files=[])
+        c._cache_auth = True
+
+        kr_mock.get_password = mock.Mock(side_effect=[RuntimeError])
+        kr_mock.set_password = mock.Mock()
+
+        region = c.get_one('_test-cloud_')
+
+        region.set_auth_cache()
+        kr_mock.set_password.assert_called_with(
+            'openstacksdk', region._auth.get_cache_id(),
+            region._auth.get_auth_state())
+
+    def test_metrics_global(self):
+        c = config.OpenStackConfig(config_files=[self.cloud_yaml],
+                                   vendor_files=[self.vendor_yaml],
+                                   secure_files=[self.secure_yaml])
+        self.assertIsInstance(c.cloud_config, dict)
+        cc = c.get_one('_test-cloud_')
+        statsd = {
+            'host': '127.0.0.1',
+            'port': '1234',
+        }
+        # NOTE(ianw) we don't test/call get_<stat>_client() because we
+        # don't want to instantiate the client, which tries to
+        # connect / do hostname lookups.
+        self.assertEqual(statsd['host'], cc._statsd_host)
+        self.assertEqual(statsd['port'], cc._statsd_port)
+        self.assertEqual('openstack.api', cc.get_statsd_prefix())
+        influxdb = {
+            'use_udp': True,
+            'host': '127.0.0.1',
+            'port': '1234',
+            'username': 'username',
+            'password': 'password',
+            'database': 'database',
+            'measurement': 'measurement.name',
+            'timeout': 10
+        }
+        self.assertEqual(influxdb, cc._influxdb_config)
+
+    def test_metrics_override(self):
+        c = config.OpenStackConfig(config_files=[self.cloud_yaml],
+                                   vendor_files=[self.vendor_yaml],
+                                   secure_files=[self.secure_yaml])
+        self.assertIsInstance(c.cloud_config, dict)
+        cc = c.get_one('_test-cloud-override-metrics')
+        statsd = {
+            'host': '127.0.0.1',
+            'port': '4321',
+            'prefix': 'statsd.override.prefix'
+        }
+        self.assertEqual(statsd['host'], cc._statsd_host)
+        self.assertEqual(statsd['port'], cc._statsd_port)
+        self.assertEqual(statsd['prefix'], cc.get_statsd_prefix())
+        influxdb = {
+            'use_udp': True,
+            'host': '127.0.0.1',
+            'port': '1234',
+            'username': 'override-username',
+            'password': 'override-password',
+            'database': 'override-database',
+            'measurement': 'measurement.name',
+            'timeout': 10
+        }
+        self.assertEqual(influxdb, cc._influxdb_config)
 
 
 class TestExcludedFormattedConfigValue(base.TestCase):

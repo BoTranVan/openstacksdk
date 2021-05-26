@@ -11,6 +11,7 @@
 # under the License.
 
 from openstack import exceptions
+from openstack.network.v2 import address_group as _address_group
 from openstack.network.v2 import address_scope as _address_scope
 from openstack.network.v2 import agent as _agent
 from openstack.network.v2 import auto_allocated_topology as \
@@ -23,6 +24,9 @@ from openstack.network.v2 import firewall_rule as _firewall_rule
 from openstack.network.v2 import flavor as _flavor
 from openstack.network.v2 import floating_ip as _floating_ip
 from openstack.network.v2 import health_monitor as _health_monitor
+from openstack.network.v2 import ipsec_site_connection as \
+    _ipsec_site_connection
+from openstack.network.v2 import l3_conntrack_helper as _l3_conntrack_helper
 from openstack.network.v2 import listener as _listener
 from openstack.network.v2 import load_balancer as _load_balancer
 from openstack.network.v2 import metering_label as _metering_label
@@ -79,6 +83,118 @@ class Proxy(proxy.Proxy):
             raise
 
         return rv
+
+    def create_address_group(self, **attrs):
+        """Create a new address group from attributes
+
+        :param dict attrs: Keyword arguments which will be used to create
+            a :class:`~openstack.network.v2.address_group.AddressGroup`,
+            comprised of the properties on the AddressGroup class.
+
+        :returns: The results of address group creation
+        :rtype: :class:`~openstack.network.v2.address_group.AddressGroup`
+        """
+        return self._create(_address_group.AddressGroup, **attrs)
+
+    def delete_address_group(self, address_group, ignore_missing=True):
+        """Delete an address group
+
+        :param address_group: The value can be either the ID of an
+            address group or
+            a :class:`~openstack.network.v2.address_group.AddressGroup`
+            instance.
+        :param bool ignore_missing: When set to ``False``
+                    :class:`~openstack.exceptions.ResourceNotFound` will
+                    be raised when the address group does not exist.
+                    When set to ``True``, no exception will be set when
+                    attempting to delete a nonexistent address group.
+
+        :returns: ``None``
+        """
+        self._delete(_address_group.AddressGroup, address_group,
+                     ignore_missing=ignore_missing)
+
+    def find_address_group(self, name_or_id, ignore_missing=True, **args):
+        """Find a single address group
+
+        :param name_or_id: The name or ID of an address group.
+        :param bool ignore_missing: When set to ``False``
+                    :class:`~openstack.exceptions.ResourceNotFound` will be
+                    raised when the resource does not exist.
+                    When set to ``True``, None will be returned when
+                    attempting to find a nonexistent resource.
+        :param dict args: Any additional parameters to be passed into
+                          underlying methods. such as query filters.
+        :returns: One :class:`~openstack.network.v2.address_group.AddressGroup`
+                  or None
+        """
+        return self._find(_address_group.AddressGroup, name_or_id,
+                          ignore_missing=ignore_missing, **args)
+
+    def get_address_group(self, address_group):
+        """Get a single address group
+
+        :param address_group: The value can be the ID of an address group or a
+            :class:`~openstack.network.v2.address_group.AddressGroup` instance.
+
+        :returns: One :class:`~openstack.network.v2.address_group.AddressGroup`
+        :raises: :class:`~openstack.exceptions.ResourceNotFound`
+                 when no resource can be found.
+        """
+        return self._get(_address_group.AddressGroup, address_group)
+
+    def address_groups(self, **query):
+        """Return a generator of address groups
+
+        :param dict query: Optional query parameters to be sent to limit
+                           the resources being returned.
+
+            * ``name``: Address group name
+            * ``description``: Address group description
+            * ``project_id``: Owner project ID
+
+        :returns: A generator of address group objects
+        :rtype: :class:`~openstack.network.v2.address_group.AddressGroup`
+        """
+        return self._list(_address_group.AddressGroup, **query)
+
+    def update_address_group(self, address_group, **attrs):
+        """Update an address group
+
+        :param address_group: Either the ID of an address group or a
+            :class:`~openstack.network.v2.address_group.AddressGroup` instance.
+        :param dict attrs: The attributes to update on the address group
+                           represented by ``value``.
+
+        :returns: The updated address group
+        :rtype: :class:`~openstack.network.v2.address_group.AddressGroup`
+        """
+        return self._update(_address_group.AddressGroup, address_group,
+                            **attrs)
+
+    def add_addresses_to_address_group(self, address_group, addresses):
+        """Add addresses to a address group
+
+        :param address_group: Either the ID of an address group or a
+            :class:`~openstack.network.v2.address_group.AddressGroup` instance.
+        :param list addresses: List of address strings.
+        :returns: AddressGroup with updated addresses
+        :rtype: :class: `~openstack.network.v2.address_group.AddressGroup`
+        """
+        ag = self._get_resource(_address_group.AddressGroup, address_group)
+        return ag.add_addresses(self, addresses)
+
+    def remove_addresses_from_address_group(self, address_group, addresses):
+        """Remove addresses from a address group
+
+        :param address_group: Either the ID of an address group or a
+            :class:`~openstack.network.v2.address_group.AddressGroup` instance.
+        :param list addresses: List of address strings.
+        :returns: AddressGroup with updated addresses
+        :rtype: :class: `~openstack.network.v2.address_group.AddressGroup`
+        """
+        ag = self._get_resource(_address_group.AddressGroup, address_group)
+        return ag.remove_addresses(self, addresses)
 
     def create_address_scope(self, **attrs):
         """Create a new address scope from attributes
@@ -836,6 +952,100 @@ class Proxy(proxy.Proxy):
         """
         return self._update(_health_monitor.HealthMonitor, health_monitor,
                             **attrs)
+
+    def create_vpn_ipsec_site_connection(self, **attrs):
+        """Create a new ipsec site connection from attributes
+
+        :param dict attrs: Keyword arguments which will be used to create a
+            :class:`~openstack.network.v2.ipsec_site_connection.
+            IPSecSiteConnection`, comprised of the properties on the
+            IPSecSiteConnection class.
+
+        :returns: The results of ipsec site connection creation :rtype:
+            :class:`~openstack.network.v2.ipsec_site_connection.
+            IPSecSiteConnection`
+        """
+        return self._create(_ipsec_site_connection.IPSecSiteConnection,
+                            **attrs)
+
+    def find_vpn_ipsec_site_connection(self, name_or_id,
+                                       ignore_missing=True, **args):
+        """Find a single ipsec site connection
+
+        :param name_or_id: The name or ID of an ipsec site connection.
+        :param bool ignore_missing: When set to ``False`` :class:`~openstack.
+            exceptions.ResourceNotFound` will be raised when the resource does
+            not exist.When set to ``True``, None will be returned when
+            attempting to find a nonexistent resource.
+        :param dict args: Any additional parameters to be passed into
+            underlying methods such as query filters.
+        :returns: One :class:`~openstack.network.v2.ipsec_site_connection.
+            IPSecSiteConnection` or None
+        """
+        return self._find(_ipsec_site_connection.IPSecSiteConnection,
+                          name_or_id, ignore_missing=ignore_missing, **args)
+
+    def get_vpn_ipsec_site_connection(self, ipsec_site_connection):
+        """Get a single ipsec site connection
+
+        :param ipsec_site_connection: The value can be the ID of an ipsec site
+            connection or a :class:`~openstack.network.v2.
+            ipsec_site_connection.IPSecSiteConnection` instance.
+
+        :returns: One :class:`~openstack.network.v2.ipsec_site_connection.
+            IPSecSiteConnection`
+        :raises: :class:`~openstack.exceptions.ResourceNotFound`
+            when no resource can be found.
+        """
+        return self._get(_ipsec_site_connection.IPSecSiteConnection,
+                         ipsec_site_connection)
+
+    def vpn_ipsec_site_connections(self, **query):
+        """Return a generator of ipsec site connections
+
+        :param dict query: Optional query parameters to be sent to limit the
+            resources being returned.
+
+        :returns: A generator of ipsec site connection objects
+        :rtype: :class:`~openstack.network.v2.ipsec_site_connection.
+            IPSecSiteConnection`
+        """
+        return self._list(_ipsec_site_connection.IPSecSiteConnection, **query)
+
+    def update_vpn_ipsec_site_connection(self, ipsec_site_connection, **attrs):
+        """Update a ipsec site connection
+
+        :ipsec_site_connection: Either the id of an ipsec site connection or
+            a :class:`~openstack.network.v2.ipsec_site_connection.
+            IPSecSiteConnection` instance.
+        :param dict attrs: The attributes to update on the ipsec site
+            connection represented by ``ipsec_site_connection``.
+
+        :returns: The updated ipsec site connection
+        :rtype: :class:`~openstack.network.v2.ipsec_site_connection.
+            IPSecSiteConnection`
+        """
+        return self._update(_ipsec_site_connection.IPSecSiteConnection,
+                            ipsec_site_connection, **attrs)
+
+    def delete_vpn_ipsec_site_connection(self, ipsec_site_connection,
+                                         ignore_missing=True):
+        """Delete a ipsec site connection
+
+        :param ipsec_site_connection: The value can be either the ID of an
+            ipsec site connection, or a :class:`~openstack.network.v2.
+            ipsec_site_connection.IPSecSiteConnection` instance.
+        :param bool ignore_missing:
+            When set to ``False`` :class:`~openstack.exceptions.
+            ResourceNotFound` will be raised when the ipsec site connection
+            does not exist.
+            When set to ``True``, no exception will be set when attempting to
+            delete a nonexistent ipsec site connection.
+
+        :returns: ``None``
+        """
+        self._delete(_ipsec_site_connection.IPSecSiteConnection,
+                     ipsec_site_connection, ignore_missing=ignore_missing)
 
     def create_listener(self, **attrs):
         """Create a new listener from attributes
@@ -4006,6 +4216,101 @@ class Proxy(proxy.Proxy):
         floatingip = self._get_resource(_floating_ip.FloatingIP, floating_ip)
         return self._update(_port_forwarding.PortForwarding, port_forwarding,
                             floatingip_id=floatingip.id, **attrs)
+
+    def create_conntrack_helper(self, router, **attrs):
+        """Create a new L3 conntrack helper from attributes
+
+        :param router: Either the router ID or an instance of
+            :class:`~openstack.network.v2.router.Router`
+        :param dict attrs: Keyword arguments which will be used to create a
+            :class:`~openstack.network.v2.l3_conntrack_helper.ConntrackHelper`,
+            comprised of the properties on the ConntrackHelper class.
+
+        :returns: The results of conntrack helper creation
+        :rtype:
+            :class: `~openstack.network.v2.l3_conntrack_helper.ConntrackHelper`
+        """
+        router = self._get_resource(_router.Router, router)
+        return self._create(_l3_conntrack_helper.ConntrackHelper,
+                            router_id=router.id, **attrs)
+
+    def conntrack_helpers(self, router, **query):
+        """Return a generator of conntrack helpers
+
+        :param router: Either the router ID or an instance of
+            :class:`~openstack.network.v2.router.Router`
+        :param kwargs query: Optional query parameters to be sent to limit
+            the resources being returned.
+        :returns: A generator of conntrack helper objects
+        :rtype:
+            :class: `~openstack.network.v2.l3_conntrack_helper.ConntrackHelper`
+        """
+        router = self._get_resource(_router.Router, router)
+        return self._list(_l3_conntrack_helper.ConntrackHelper,
+                          router_id=router.id, **query)
+
+    def get_conntrack_helper(self, conntrack_helper, router):
+        """Get a single L3 conntrack helper
+
+        :param conntrack_helper: The value can be the ID of a L3 conntrack
+            helper or a
+            :class:`~openstack.network.v2.l3_conntrack_helper.ConntrackHelper`,
+            instance.
+        :param router: The value can be the ID of a Router or a
+            :class:`~openstack.network.v2.router.Router` instance.
+
+        :returns: One
+            :class:`~openstack.network.v2.l3_conntrack_helper.ConntrackHelper`
+        :raises: :class:`~openstack.exceptions.ResourceNotFound`
+            when no resource can be found.
+        """
+        router = self._get_resource(_router.Router, router)
+        return self._get(_l3_conntrack_helper.ConntrackHelper,
+                         conntrack_helper, router_id=router.id)
+
+    def update_conntrack_helper(self, conntrack_helper, router, **attrs):
+        """Update a L3 conntrack_helper
+
+        :param conntrack_helper: The value can be the ID of a L3 conntrack
+            helper or a
+            :class:`~openstack.network.v2.l3_conntrack_helper.ConntrackHelper`,
+            instance.
+        :param router: The value can be the ID of a Router or a
+            :class:`~openstack.network.v2.router.Router` instance.
+        :attrs kwargs: The attributes to update on the L3 conntrack helper
+            represented by ``value``.
+
+        :returns: The updated conntrack helper
+        :rtype:
+            :class: `~openstack.network.v2.l3_conntrack_helper.ConntrackHelper`
+
+        """
+        router = self._get_resource(_router.Router, router)
+        return self._update(_l3_conntrack_helper.ConntrackHelper,
+                            conntrack_helper, router_id=router.id, **attrs)
+
+    def delete_conntrack_helper(self, conntrack_helper, router,
+                                ignore_missing=True):
+        """Delete a L3 conntrack_helper
+
+        :param conntrack_helper: The value can be the ID of a L3 conntrack
+            helper or a
+            :class:`~openstack.network.v2.l3_conntrack_helper.ConntrackHelper`,
+            instance.
+        :param router: The value can be the ID of a Router or a
+            :class:`~openstack.network.v2.router.Router` instance.
+        :param bool ignore_missing: When set to ``False``
+                    :class:`~openstack.exceptions.ResourceNotFound` will be
+                    raised when the floating ip does not exist.
+                    When set to ``True``, no exception will be set when
+                    attempting to delete a nonexistent ip.
+
+        :returns: ``None``
+        """
+        router = self._get_resource(_router.Router, router)
+        self._delete(_l3_conntrack_helper.ConntrackHelper,
+                     conntrack_helper, router_id=router.id,
+                     ignore_missing=ignore_missing)
 
     def _get_cleanup_dependencies(self):
         return {

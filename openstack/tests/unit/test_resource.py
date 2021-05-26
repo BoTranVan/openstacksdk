@@ -1368,6 +1368,88 @@ class TestResource(base.TestCase):
             sot.properties
         )
 
+    def test_unknown_attrs_in_body_create(self):
+        class Test(resource.Resource):
+            known_param = resource.Body("known_param")
+            _allow_unknown_attrs_in_body = True
+
+        sot = Test.new(**{
+            'known_param': 'v1',
+            'unknown_param': 'v2'
+        })
+        self.assertEqual('v1', sot.known_param)
+        self.assertEqual('v2', sot.unknown_param)
+
+    def test_unknown_attrs_in_body_not_stored(self):
+        class Test(resource.Resource):
+            known_param = resource.Body("known_param")
+            properties = resource.Body("properties")
+
+        sot = Test.new(**{
+            'known_param': 'v1',
+            'unknown_param': 'v2'
+        })
+        self.assertEqual('v1', sot.known_param)
+        self.assertNotIn('unknown_param', sot)
+
+    def test_unknown_attrs_in_body_set(self):
+        class Test(resource.Resource):
+            known_param = resource.Body("known_param")
+            _allow_unknown_attrs_in_body = True
+
+        sot = Test.new(**{
+            'known_param': 'v1',
+        })
+        sot['unknown_param'] = 'v2'
+
+        self.assertEqual('v1', sot.known_param)
+        self.assertEqual('v2', sot.unknown_param)
+
+    def test_unknown_attrs_in_body_not_allowed_to_set(self):
+        class Test(resource.Resource):
+            known_param = resource.Body("known_param")
+            _allow_unknown_attrs_in_body = False
+
+        sot = Test.new(**{
+            'known_param': 'v1',
+        })
+        try:
+            sot['unknown_param'] = 'v2'
+        except KeyError:
+            self.assertEqual('v1', sot.known_param)
+            self.assertNotIn('unknown_param', sot)
+            return
+        self.fail("Parameter 'unknown_param' unexpectedly set through the "
+                  "dict interface")
+
+    def test_unknown_attrs_in_body_translate_response(self):
+        class Test(resource.Resource):
+            known_param = resource.Body("known_param")
+            _allow_unknown_attrs_in_body = True
+
+        body = {'known_param': 'v1', 'unknown_param': 'v2'}
+        response = FakeResponse(body)
+
+        sot = Test()
+        sot._translate_response(response, has_body=True)
+
+        self.assertEqual('v1', sot.known_param)
+        self.assertEqual('v2', sot.unknown_param)
+
+    def test_unknown_attrs_not_in_body_translate_response(self):
+        class Test(resource.Resource):
+            known_param = resource.Body("known_param")
+            _allow_unknown_attrs_in_body = False
+
+        body = {'known_param': 'v1', 'unknown_param': 'v2'}
+        response = FakeResponse(body)
+
+        sot = Test()
+        sot._translate_response(response, has_body=True)
+
+        self.assertEqual('v1', sot.known_param)
+        self.assertNotIn('unknown_param', sot)
+
 
 class TestResourceActions(base.TestCase):
 
@@ -2086,6 +2168,31 @@ class TestResourceActions(base.TestCase):
         self.assertEqual(ids[0], results[0].id)
         self.assertIsInstance(results[0], self.test_class)
 
+    def test_list_paginated_infinite_loop(self):
+        q_limit = 1
+        mock_response = mock.Mock()
+        mock_response.status_code = 200
+        mock_response.links = {}
+        mock_response.json.side_effect = [
+            {
+                "resources": [{"id": 1}],
+            }, {
+                "resources": [{"id": 1}],
+            }]
+
+        self.session.get.return_value = mock_response
+
+        class Test(self.test_class):
+            _query_mapping = resource.QueryParameters("limit")
+
+        res = Test.list(self.session, paginated=True, limit=q_limit)
+
+        self.assertRaises(
+            exceptions.SDKException,
+            list,
+            res
+        )
+
     def test_list_query_params(self):
         id = 1
         qp = "query param!"
@@ -2113,6 +2220,8 @@ class TestResourceActions(base.TestCase):
                                  query_param=qp, something=uri_param))
 
         self.assertEqual(1, len(results))
+        # Verify URI attribute is set on the resource
+        self.assertEqual(results[0].something, uri_param)
 
         # Look at the `params` argument to each of the get calls that
         # were made.
@@ -2668,7 +2777,7 @@ class TestResourceFind(base.TestCase):
 
         @classmethod
         def list(cls, session, **params):
-            return None
+            return []
 
     class OneResult(Base):
 
@@ -2788,6 +2897,22 @@ class TestResourceFind(base.TestCase):
         self.assertRaises(
             exceptions.DuplicateResource,
             resource.Resource._get_one_match, the_id, [match, match])
+
+    def test_list_no_base_path(self):
+
+        with mock.patch.object(self.Base, "list") as list_mock:
+            self.Base.find(self.cloud.compute, "name")
+
+            list_mock.assert_called_with(self.cloud.compute)
+
+    def test_list_base_path(self):
+
+        with mock.patch.object(self.Base, "list") as list_mock:
+            self.Base.find(
+                self.cloud.compute, "name", list_base_path='/dummy/list')
+
+            list_mock.assert_called_with(
+                self.cloud.compute, base_path='/dummy/list')
 
 
 class TestWaitForStatus(base.TestCase):

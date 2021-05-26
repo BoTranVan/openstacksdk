@@ -4,6 +4,7 @@ Network Resources
 .. toctree::
    :maxdepth: 1
 
+   v2/address_group
    v2/address_scope
    v2/agent
    v2/auto_allocated_topology
@@ -12,6 +13,7 @@ Network Resources
    v2/flavor
    v2/floating_ip
    v2/health_monitor
+   v2/ipsec_site_connection
    v2/listener
    v2/load_balancer
    v2/metering_label

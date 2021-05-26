@@ -47,6 +47,22 @@ USER_CONF = {
     'client': {
         'force_ipv4': True,
     },
+    'metrics': {
+        'statsd': {
+            'host': '127.0.0.1',
+            'port': '1234'
+        },
+        'influxdb': {
+            'host': '127.0.0.1',
+            'port': '1234',
+            'use_udp': True,
+            'username': 'username',
+            'password': 'password',
+            'database': 'database',
+            'measurement': 'measurement.name',
+            'timeout': 10,
+        }
+    },
     'clouds': {
         '_test-cloud_': {
             'profile': '_test_cloud_in_our_cloud',
@@ -172,6 +188,25 @@ USER_CONF = {
                 'domain-id': '12345',
             },
         },
+        '_test-cloud-override-metrics': {
+            'auth': {
+                'auth_url': 'http://example.com/v2',
+                'username': 'testuser',
+                'password': 'testpass',
+            },
+            'metrics': {
+                'statsd': {
+                    'host': '127.0.0.1',
+                    'port': 4321,
+                    'prefix': 'statsd.override.prefix'
+                },
+                'influxdb': {
+                    'username': 'override-username',
+                    'password': 'override-password',
+                    'database': 'override-database',
+                }
+            },
+        },
     },
     'ansible': {
         'expand-hostvars': False,
@@ -194,7 +229,7 @@ NO_CONF = {
 
 def _write_yaml(obj):
     # Assume NestedTempfile so we don't have to cleanup
-    with tempfile.NamedTemporaryFile(delete=False) as obj_yaml:
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.yaml') as obj_yaml:
         obj_yaml.write(yaml.safe_dump(obj).encode('utf-8'))
         return obj_yaml.name
 

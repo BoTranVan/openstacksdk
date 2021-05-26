@@ -15,9 +15,9 @@
 # openstack.resource.Resource.list and openstack.resource2.Resource.list
 import types  # noqa
 
-from openstack.cloud import exc
 from openstack.cloud import _normalize
 from openstack.cloud import _utils
+from openstack.cloud import exc
 from openstack import utils
 
 
@@ -235,7 +235,7 @@ class ImageCloudMixin(_normalize.Normalizer):
             md5=None, sha256=None,
             disk_format=None, container_format=None,
             disable_vendor_agent=True,
-            wait=False, timeout=3600,
+            wait=False, timeout=3600, tags=None,
             allow_duplicates=False, meta=None, volume=None, **kwargs):
         """Upload an image.
 
@@ -259,6 +259,8 @@ class ImageCloudMixin(_normalize.Normalizer):
                                      (optional, defaults to the
                                      os-client-config config value for this
                                      cloud)
+        :param list tags: List of tags for this image. Each tag is a string
+                          of at most 255 chars.
         :param bool disable_vendor_agent: Whether or not to append metadata
                                           flags to the image to inform the
                                           cloud in question to not expect a
@@ -304,7 +306,7 @@ class ImageCloudMixin(_normalize.Normalizer):
                 md5=md5, sha256=sha256,
                 disk_format=disk_format, container_format=container_format,
                 disable_vendor_agent=disable_vendor_agent,
-                wait=wait, timeout=timeout,
+                wait=wait, timeout=timeout, tags=tags,
                 allow_duplicates=allow_duplicates, meta=meta, **kwargs)
 
         self._get_cache(None).invalidate()

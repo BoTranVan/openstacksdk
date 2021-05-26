@@ -19,6 +19,7 @@ from openstack.baremetal.v1 import node
 from openstack import exceptions
 from openstack import resource
 from openstack.tests.unit import base
+from openstack import utils
 
 # NOTE: Sample data from api-ref doc
 FAKE = {
@@ -294,6 +295,34 @@ class TestNodeSetProvisionState(base.TestCase):
                 json={'target': target, 'configdrive': {'user_data': 'abcd'}},
                 headers=mock.ANY, microversion='1.56',
                 retriable_status_codes=_common.RETRIABLE_STATUS_CODES)
+
+    def test_deploy_with_deploy_steps(self):
+        deploy_steps = [{'interface': 'deploy', 'step': 'upgrade_fw'}]
+        result = self.node.set_provision_state(
+            self.session, 'active',
+            deploy_steps=deploy_steps)
+
+        self.assertIs(result, self.node)
+        self.session.put.assert_called_once_with(
+            'nodes/%s/states/provision' % self.node.id,
+            json={'target': 'active', 'deploy_steps': deploy_steps},
+            headers=mock.ANY, microversion='1.69',
+            retriable_status_codes=_common.RETRIABLE_STATUS_CODES
+        )
+
+    def test_rebuild_with_deploy_steps(self):
+        deploy_steps = [{'interface': 'deploy', 'step': 'upgrade_fw'}]
+        result = self.node.set_provision_state(
+            self.session, 'rebuild',
+            deploy_steps=deploy_steps)
+
+        self.assertIs(result, self.node)
+        self.session.put.assert_called_once_with(
+            'nodes/%s/states/provision' % self.node.id,
+            json={'target': 'rebuild', 'deploy_steps': deploy_steps},
+            headers=mock.ANY, microversion='1.69',
+            retriable_status_codes=_common.RETRIABLE_STATUS_CODES
+        )
 
 
 @mock.patch.object(node.Node, '_translate_response', mock.Mock())
@@ -731,6 +760,7 @@ class TestNodeSetBootDevice(base.TestCase):
             retriable_status_codes=_common.RETRIABLE_STATUS_CODES)
 
 
+@mock.patch.object(utils, 'pick_microversion', lambda session, v: v)
 @mock.patch.object(node.Node, 'fetch', lambda self, session: self)
 @mock.patch.object(exceptions, 'raise_from_response', mock.Mock())
 class TestNodeTraits(base.TestCase):
@@ -811,3 +841,77 @@ class TestNodePatch(base.TestCase):
         self.assertIn('1.45', commit_args)
         self.assertEqual(commit_kwargs['retry_on_conflict'], True)
         mock_patch.assert_not_called()
+
+
+@mock.patch('time.sleep', lambda _t: None)
+@mock.patch.object(node.Node, 'fetch', autospec=True)
+class TestNodeWaitForPowerState(base.TestCase):
+    def setUp(self):
+        super(TestNodeWaitForPowerState, self).setUp()
+        self.node = node.Node(**FAKE)
+        self.session = mock.Mock()
+
+    def test_success(self, mock_fetch):
+        self.node.power_state = 'power on'
+
+        def _get_side_effect(_self, session):
+            self.node.power_state = 'power off'
+            self.assertIs(session, self.session)
+
+        mock_fetch.side_effect = _get_side_effect
+
+        node = self.node.wait_for_power_state(self.session, 'power off')
+        self.assertIs(node, self.node)
+
+    def test_timeout(self, mock_fetch):
+        self.node.power_state = 'power on'
+        self.assertRaises(exceptions.ResourceTimeout,
+                          self.node.wait_for_power_state,
+                          self.session, 'power off', timeout=0.001)
+
+
+@mock.patch.object(utils, 'pick_microversion', lambda session, v: v)
+@mock.patch.object(node.Node, 'fetch', lambda self, session: self)
+@mock.patch.object(exceptions, 'raise_from_response', mock.Mock())
+class TestNodePassthru(object):
+    def setUp(self):
+        super(TestNodePassthru, self).setUp()
+        self.node = node.Node(**FAKE)
+        self.session = node.Mock(spec=adapter.Adapter,
+                                 default_microversion='1.37')
+        self.session.log = mock.Mock()
+
+    def test_get_passthru(self):
+        self.node.call_vendor_passthru(self.session, "GET", "test_method")
+        self.session.get.assert_called_once_with(
+            'nodes/%s/vendor_passthru?method=test_method' % self.node.id,
+            headers=mock.ANY, microversion='1.37',
+            retriable_status_codes=_common.RETRIABLE_STATUS_CODES)
+
+    def test_post_passthru(self):
+        self.node.call_vendor_passthru(self.session, "POST", "test_method")
+        self.session.post.assert_called_once_with(
+            'nodes/%s/vendor_passthru?method=test_method' % self.node.id,
+            headers=mock.ANY, microversion='1.37',
+            retriable_status_codes=_common.RETRIABLE_STATUS_CODES)
+
+    def test_put_passthru(self):
+        self.node.call_vendor_passthru(self.session, "PUT", "test_method")
+        self.session.put.assert_called_once_with(
+            'nodes/%s/vendor_passthru?method=test_method' % self.node.id,
+            headers=mock.ANY, microversion='1.37',
+            retriable_status_codes=_common.RETRIABLE_STATUS_CODES)
+
+    def test_delete_passthru(self):
+        self.node.call_vendor_passthru(self.session, "DELETE", "test_method")
+        self.session.delete.assert_called_once_with(
+            'nodes/%s/vendor_passthru?method=test_method' % self.node.id,
+            headers=mock.ANY, microversion='1.37',
+            retriable_status_codes=_common.RETRIABLE_STATUS_CODES)
+
+    def test_list_passthru(self):
+        self.node.list_vendor_passthru(self.session)
+        self.session.get.assert_called_once_with(
+            'nodes/%s/vendor_passthru/methods' % self.node.id,
+            headers=mock.ANY, microversion='1.37',
+            retriable_status_codes=_common.RETRIABLE_STATUS_CODES)

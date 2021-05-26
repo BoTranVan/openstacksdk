@@ -9,6 +9,7 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 # License for the specific language governing permissions and limitations
 # under the License.
+
 import warnings
 
 from openstack.compute.v2 import aggregate as _aggregate
@@ -23,14 +24,15 @@ from openstack.compute.v2 import server as _server
 from openstack.compute.v2 import server_diagnostics as _server_diagnostics
 from openstack.compute.v2 import server_group as _server_group
 from openstack.compute.v2 import server_interface as _server_interface
-from openstack.compute.v2 import (
-    server_remote_console as _server_remote_console)
 from openstack.compute.v2 import server_ip
+from openstack.compute.v2 import server_remote_console as _src
 from openstack.compute.v2 import service as _service
 from openstack.compute.v2 import volume_attachment as _volume_attachment
+from openstack import exceptions
 from openstack.network.v2 import security_group as _sg
 from openstack import proxy
 from openstack import resource
+from openstack import utils
 
 
 class Proxy(proxy.Proxy):
@@ -58,19 +60,31 @@ class Proxy(proxy.Proxy):
         """
         return self._list(extension.Extension)
 
-    def find_flavor(self, name_or_id, ignore_missing=True):
+    # ========== Flavors ==========
+
+    def find_flavor(self, name_or_id, ignore_missing=True,
+                    get_extra_specs=False, **query):
         """Find a single flavor
 
         :param name_or_id: The name or ID of a flavor.
         :param bool ignore_missing: When set to ``False``
-                    :class:`~openstack.exceptions.ResourceNotFound` will be
-                    raised when the resource does not exist.
-                    When set to ``True``, None will be returned when
-                    attempting to find a nonexistent resource.
+            :class:`~openstack.exceptions.ResourceNotFound` will be raised when
+            the resource does not exist.  When set to ``True``, None will be
+            returned when attempting to find a nonexistent resource.
+        :param bool get_extra_specs: When set to ``True`` and extra_specs not
+            present in the response will invoke additional API call to fetch
+            extra_specs.
+
+        :param kwargs query: Optional query parameters to be sent to limit
+            the flavors being returned.
+
         :returns: One :class:`~openstack.compute.v2.flavor.Flavor` or None
         """
-        return self._find(_flavor.Flavor, name_or_id,
-                          ignore_missing=ignore_missing)
+        flavor = self._find(
+            _flavor.Flavor, name_or_id, ignore_missing=ignore_missing, **query)
+        if flavor and get_extra_specs and not flavor.extra_specs:
+            flavor = flavor.fetch_extra_specs(self)
+        return flavor
 
     def create_flavor(self, **attrs):
         """Create a new flavor from attributes
@@ -99,32 +113,153 @@ class Proxy(proxy.Proxy):
         """
         self._delete(_flavor.Flavor, flavor, ignore_missing=ignore_missing)
 
-    def get_flavor(self, flavor):
+    def update_flavor(self, flavor, **attrs):
+        """Update a flavor
+
+        :param server: Either the ID of a flavot or a
+            :class:`~openstack.compute.v2.flavor.Flavor` instance.
+        :attrs kwargs: The attributes to update on the flavor represented
+            by ``flavor``.
+
+        :returns: The updated flavor
+        :rtype: :class:`~openstack.compute.v2.flavor.Flavor`
+        """
+        return self._update(_flavor.Flavor, flavor, **attrs)
+
+    def get_flavor(self, flavor, get_extra_specs=False):
         """Get a single flavor
 
         :param flavor: The value can be the ID of a flavor or a
-                       :class:`~openstack.compute.v2.flavor.Flavor` instance.
+            :class:`~openstack.compute.v2.flavor.Flavor` instance.
+        :param bool get_extra_specs: When set to ``True`` and extra_specs not
+            present in the response will invoke additional API call to fetch
+            extra_specs.
 
         :returns: One :class:`~openstack.compute.v2.flavor.Flavor`
         :raises: :class:`~openstack.exceptions.ResourceNotFound`
-                 when no resource can be found.
+            when no resource can be found.
         """
-        return self._get(_flavor.Flavor, flavor)
+        flavor = self._get(_flavor.Flavor, flavor)
+        if get_extra_specs and not flavor.extra_specs:
+            flavor = flavor.fetch_extra_specs(self)
+        return flavor
 
-    def flavors(self, details=True, **query):
+    def flavors(self, details=True, get_extra_specs=False, **query):
         """Return a generator of flavors
 
         :param bool details: When ``True``, returns
-            :class:`~openstack.compute.v2.flavor.FlavorDetail` objects,
-            otherwise :class:`~openstack.compute.v2.flavor.Flavor`.
-            *Default: ``True``*
+            :class:`~openstack.compute.v2.flavor.Flavor` objects,
+            with additional attributes filled.
+        :param bool get_extra_specs: When set to ``True`` and extra_specs not
+            present in the response will invoke additional API call to fetch
+            extra_specs.
         :param kwargs query: Optional query parameters to be sent to limit
-                                 the flavors being returned.
+            the flavors being returned.
 
         :returns: A generator of flavor objects
         """
-        flv = _flavor.FlavorDetail if details else _flavor.Flavor
-        return self._list(flv, **query)
+        base_path = '/flavors/detail' if details else '/flavors'
+        for flv in self._list(_flavor.Flavor, base_path=base_path, **query):
+            if get_extra_specs and not flv.extra_specs:
+                flv = flv.fetch_extra_specs(self)
+            yield flv
+
+    def flavor_add_tenant_access(self, flavor, tenant):
+        """Adds tenant/project access to flavor.
+
+        :param flavor: Either the ID of a flavor or a
+            :class:`~openstack.compute.v2.flavor.Flavor` instance.
+        :param str tenant: The UUID of the tenant.
+
+        :returns: One :class:`~openstack.compute.v2.flavor.Flavor`
+        """
+        flavor = self._get_resource(_flavor.Flavor, flavor)
+        return flavor.add_tenant_access(self, tenant)
+
+    def flavor_remove_tenant_access(self, flavor, tenant):
+        """Removes tenant/project access to flavor.
+
+        :param flavor: Either the ID of a flavor or a
+            :class:`~openstack.compute.v2.flavor.Flavor` instance.
+        :param str tenant: The UUID of the tenant.
+
+        :returns: One :class:`~openstack.compute.v2.flavor.Flavor`
+        """
+        flavor = self._get_resource(_flavor.Flavor, flavor)
+        return flavor.remove_tenant_access(self, tenant)
+
+    def get_flavor_access(self, flavor):
+        """Lists tenants who have access to private flavor
+
+        :param flavor: Either the ID of a flavor or a
+            :class:`~openstack.compute.v2.flavor.Flavor` instance.
+
+        :returns: List of dicts with flavor_id and tenant_id attributes.
+        """
+        flavor = self._get_resource(_flavor.Flavor, flavor)
+        return flavor.get_access(self)
+
+    def fetch_flavor_extra_specs(self, flavor):
+        """Lists Extra Specs of a flavor
+
+        :param flavor: Either the ID of a flavor or a
+            :class:`~openstack.compute.v2.flavor.Flavor` instance.
+
+        :returns: One :class:`~openstack.compute.v2.flavor.Flavor`
+        """
+        flavor = self._get_resource(_flavor.Flavor, flavor)
+        return flavor.fetch_extra_specs(self)
+
+    def create_flavor_extra_specs(self, flavor, extra_specs):
+        """Lists Extra Specs of a flavor
+
+        :param flavor: Either the ID of a flavor or a
+            :class:`~openstack.compute.v2.flavor.Flavor` instance.
+        :param dict extra_specs: dict of extra specs
+
+        :returns: One :class:`~openstack.compute.v2.flavor.Flavor`
+        """
+        flavor = self._get_resource(_flavor.Flavor, flavor)
+        return flavor.create_extra_specs(self, specs=extra_specs)
+
+    def get_flavor_extra_specs_property(self, flavor, prop):
+        """Get specific Extra Spec property of a flavor
+
+        :param flavor: Either the ID of a flavor or a
+            :class:`~openstack.compute.v2.flavor.Flavor` instance.
+        :param str prop: Property name.
+
+        :returns: String value of the requested property.
+        """
+        flavor = self._get_resource(_flavor.Flavor, flavor)
+        return flavor.get_extra_specs_property(self, prop)
+
+    def update_flavor_extra_specs_property(self, flavor, prop, val):
+        """Update specific Extra Spec property of a flavor
+
+        :param flavor: Either the ID of a flavor or a
+            :class:`~openstack.compute.v2.flavor.Flavor` instance.
+        :param str prop: Property name.
+        :param str val: Property value.
+
+        :returns: String value of the requested property.
+        """
+        flavor = self._get_resource(_flavor.Flavor, flavor)
+        return flavor.update_extra_specs_property(self, prop, val)
+
+    def delete_flavor_extra_specs_property(self, flavor, prop):
+        """Delete specific Extra Spec property of a flavor
+
+        :param flavor: Either the ID of a flavor or a
+            :class:`~openstack.compute.v2.flavor.Flavor` instance.
+        :param str prop: Property name.
+
+        :returns: None
+        """
+        flavor = self._get_resource(_flavor.Flavor, flavor)
+        return flavor.delete_extra_specs_property(self, prop)
+
+    # ========== Aggregates ==========
 
     def aggregates(self, **query):
         """Return a generator of aggregate
@@ -149,6 +284,20 @@ class Proxy(proxy.Proxy):
                  when no resource can be found.
         """
         return self._get(_aggregate.Aggregate, aggregate)
+
+    def find_aggregate(self, name_or_id, ignore_missing=True):
+        """Find a single aggregate
+
+        :param name_or_id: The name or ID of an aggregate.
+        :param bool ignore_missing: When set to ``False``
+            :class:`~openstack.exceptions.ResourceNotFound` will be raised when
+            the resource does not exist.  When set to ``True``, None will be
+            returned when attempting to find a nonexistent resource.
+        :returns: One :class:`~openstack.compute.v2.aggregate.Aggregate`
+            or None
+        """
+        return self._find(_aggregate.Aggregate, name_or_id,
+                          ignore_missing=ignore_missing)
 
     def create_aggregate(self, **attrs):
         """Create a new host aggregate from attributes
@@ -233,6 +382,26 @@ class Proxy(proxy.Proxy):
         """
         aggregate = self._get_resource(_aggregate.Aggregate, aggregate)
         return aggregate.set_metadata(self, metadata)
+
+    def aggregate_precache_images(self, aggregate, images):
+        """Requests image precaching on an aggregate
+
+        :param aggregate: Either the ID of a aggregate or a
+            :class:`~openstack.compute.v2.aggregate.Aggregate` instance.
+        :param images: Single image id or list of image ids.
+
+        :returns: ``None``
+        """
+        aggregate = self._get_resource(_aggregate.Aggregate, aggregate)
+        # We need to ensure we pass list of image IDs
+        if isinstance(images, str):
+            images = [images]
+        image_data = []
+        for img in images:
+            image_data.append({'id': img})
+        return aggregate.precache_images(self, image_data)
+
+    # ========== Images ==========
 
     def delete_image(self, image, ignore_missing=True):
         """Delete an image
@@ -361,48 +530,53 @@ class Proxy(proxy.Proxy):
         """
         return self._create(_keypair.Keypair, **attrs)
 
-    def delete_keypair(self, keypair, ignore_missing=True):
+    def delete_keypair(self, keypair, ignore_missing=True, user_id=None):
         """Delete a keypair
 
         :param keypair: The value can be either the ID of a keypair or a
-                        :class:`~openstack.compute.v2.keypair.Keypair`
-                        instance.
+            :class:`~openstack.compute.v2.keypair.Keypair` instance.
         :param bool ignore_missing: When set to ``False``
-                    :class:`~openstack.exceptions.ResourceNotFound` will be
-                    raised when the keypair does not exist.
-                    When set to ``True``, no exception will be set when
-                    attempting to delete a nonexistent keypair.
+            :class:`~openstack.exceptions.ResourceNotFound` will be raised when
+            the keypair does not exist.  When set to ``True``, no exception
+            will be set when attempting to delete a nonexistent keypair.
+        :param str user_id: Optional user_id owning the keypair
 
         :returns: ``None``
         """
-        self._delete(_keypair.Keypair, keypair, ignore_missing=ignore_missing)
+        attrs = {'user_id': user_id} if user_id else {}
+        self._delete(_keypair.Keypair, keypair, ignore_missing=ignore_missing,
+                     **attrs)
 
-    def get_keypair(self, keypair):
+    def get_keypair(self, keypair, user_id=None):
         """Get a single keypair
 
         :param keypair: The value can be the ID of a keypair or a
-                        :class:`~openstack.compute.v2.keypair.Keypair`
-                        instance.
+            :class:`~openstack.compute.v2.keypair.Keypair` instance.
+        :param str user_id: Optional user_id owning the keypair
 
         :returns: One :class:`~openstack.compute.v2.keypair.Keypair`
         :raises: :class:`~openstack.exceptions.ResourceNotFound`
-                 when no resource can be found.
+            when no resource can be found.
         """
-        return self._get(_keypair.Keypair, keypair)
+        attrs = {'user_id': user_id} if user_id else {}
+        return self._get(_keypair.Keypair, keypair, **attrs)
 
-    def find_keypair(self, name_or_id, ignore_missing=True):
+    def find_keypair(self, name_or_id, ignore_missing=True, user_id=None):
         """Find a single keypair
 
         :param name_or_id: The name or ID of a keypair.
         :param bool ignore_missing: When set to ``False``
-                    :class:`~openstack.exceptions.ResourceNotFound` will be
-                    raised when the resource does not exist.
-                    When set to ``True``, None will be returned when
-                    attempting to find a nonexistent resource.
+            :class:`~openstack.exceptions.ResourceNotFound` will be raised when
+            the resource does not exist.  When set to ``True``, None will be
+            returned when attempting to find a nonexistent resource.
+        :param str user_id: Optional user_id owning the keypair
+
         :returns: One :class:`~openstack.compute.v2.keypair.Keypair` or None
         """
+        attrs = {'user_id': user_id} if user_id else {}
         return self._find(_keypair.Keypair, name_or_id,
-                          ignore_missing=ignore_missing)
+                          ignore_missing=ignore_missing,
+                          **attrs)
 
     def keypairs(self, **query):
         """Return a generator of keypairs
@@ -534,7 +708,7 @@ class Proxy(proxy.Proxy):
         :returns: encrypted password.
         """
         server = self._get_resource(_server.Server, server)
-        return server.get_password(self._session)
+        return server.get_password(self)
 
     def reset_server_state(self, server, state):
         """Reset the state of server
@@ -970,6 +1144,8 @@ class Proxy(proxy.Proxy):
         return self._create(_server_interface.ServerInterface,
                             server_id=server_id, **attrs)
 
+    # TODO(stephenfin): Does this work? There's no 'value' parameter for the
+    # call to '_delete'
     def delete_server_interface(self, server_interface, server=None,
                                 ignore_missing=True):
         """Delete a server interface
@@ -995,7 +1171,7 @@ class Proxy(proxy.Proxy):
         server_interface = resource.Resource._get_id(server_interface)
 
         self._delete(_server_interface.ServerInterface,
-                     port_id=server_interface,
+                     server_interface,
                      server_id=server_id,
                      ignore_missing=ignore_missing)
 
@@ -1023,18 +1199,20 @@ class Proxy(proxy.Proxy):
         return self._get(_server_interface.ServerInterface,
                          server_id=server_id, port_id=server_interface)
 
-    def server_interfaces(self, server):
+    def server_interfaces(self, server, **query):
         """Return a generator of server interfaces
 
         :param server: The server can be either the ID of a server or a
-                       :class:`~openstack.compute.v2.server.Server`.
+            :class:`~openstack.compute.v2.server.Server`.
+        :param query: Optional query parameters to be sent to limit the
+            resources being returned.
 
         :returns: A generator of ServerInterface objects
         :rtype: :class:`~openstack.compute.v2.server_interface.ServerInterface`
         """
         server_id = resource.Resource._get_id(server)
         return self._list(_server_interface.ServerInterface,
-                          server_id=server_id)
+                          server_id=server_id, **query)
 
     def server_ips(self, server, network_label=None):
         """Return a generator of server IPs
@@ -1188,6 +1366,8 @@ class Proxy(proxy.Proxy):
         """
         return self._list(_server_group.ServerGroup, **query)
 
+    # ========== Hypervisors ==========
+
     def hypervisors(self, details=False, **query):
         """Return a generator of hypervisor
 
@@ -1200,9 +1380,16 @@ class Proxy(proxy.Proxy):
         :rtype: class: `~openstack.compute.v2.hypervisor.Hypervisor`
         """
         base_path = '/os-hypervisors/detail' if details else None
+        if (
+            'hypervisor_hostname_pattern' in query
+            and not utils.supports_microversion(self, '2.53')
+        ):
+            # Until 2.53 we need to use other API
+            base_path = '/os-hypervisors/{pattern}/search'.format(
+                pattern=query.pop('hypervisor_hostname_pattern'))
         return self._list(_hypervisor.Hypervisor, base_path=base_path, **query)
 
-    def find_hypervisor(self, name_or_id, ignore_missing=True):
+    def find_hypervisor(self, name_or_id, ignore_missing=True, details=True):
         """Find a hypervisor from name or id to get the corresponding info
 
         :param name_or_id: The name or id of a hypervisor
@@ -1212,74 +1399,174 @@ class Proxy(proxy.Proxy):
             or None
         """
 
+        list_base_path = '/os-hypervisors/detail' if details else None
         return self._find(_hypervisor.Hypervisor, name_or_id,
+                          list_base_path=list_base_path,
                           ignore_missing=ignore_missing)
 
     def get_hypervisor(self, hypervisor):
         """Get a single hypervisor
 
         :param hypervisor: The value can be the ID of a hypervisor or a
-               :class:`~openstack.compute.v2.hypervisor.Hypervisor`
-               instance.
+            :class:`~openstack.compute.v2.hypervisor.Hypervisor`
+            instance.
 
         :returns:
             A :class:`~openstack.compute.v2.hypervisor.Hypervisor` object.
         :raises: :class:`~openstack.exceptions.ResourceNotFound`
-                 when no resource can be found.
+            when no resource can be found.
         """
         return self._get(_hypervisor.Hypervisor, hypervisor)
 
-    def force_service_down(self, service, host, binary):
-        """Force a service down
+    def get_hypervisor_uptime(self, hypervisor):
+        """Get uptime information for hypervisor
+
+        :param hypervisor: The value can be the ID of a hypervisor or a
+            :class:`~openstack.compute.v2.hypervisor.Hypervisor`
+            instance.
+
+        :returns:
+            A :class:`~openstack.compute.v2.hypervisor.Hypervisor` object.
+        :raises: :class:`~openstack.exceptions.ResourceNotFound`
+            when no resource can be found.
+        """
+        hypervisor = self._get_resource(_hypervisor.Hypervisor, hypervisor)
+        return hypervisor.get_uptime(self)
+
+    # ========== Services ==========
+
+    def update_service_forced_down(
+        self, service, host=None, binary=None, forced=True
+    ):
+        """Update service forced_down information
 
         :param service: Either the ID of a service or a
-                       :class:`~openstack.compute.v2.server.Service` instance.
+            :class:`~openstack.compute.v2.service.Service` instance.
         :param str host: The host where service runs.
         :param str binary: The name of service.
+        :param bool forced: Whether or not this service was forced down
+            manually by an administrator after the service was fenced.
 
-        :returns: None
+        :returns: Updated service instance
+        :rtype: class: `~openstack.compute.v2.service.Service`
         """
-        service = self._get_resource(_service.Service, service)
-        service.force_down(self, host, binary)
+        if utils.supports_microversion(self, '2.53'):
+            return self.update_service(
+                service, forced_down=forced)
 
-    def disable_service(self, service, host, binary, disabled_reason=None):
+        service = self._get_resource(_service.Service, service)
+        if (
+            (not host or not binary)
+            and (not service.host or not service.binary)
+        ):
+            raise ValueError(
+                'Either service instance should have host and binary '
+                'or they should be passed')
+        service.set_forced_down(self, host, binary, forced)
+
+    force_service_down = update_service_forced_down
+
+    def disable_service(
+        self, service, host=None, binary=None, disabled_reason=None
+    ):
         """Disable a service
 
         :param service: Either the ID of a service or a
-                       :class:`~openstack.compute.v2.server.Service` instance.
+            :class:`~openstack.compute.v2.service.Service` instance.
         :param str host: The host where service runs.
         :param str binary: The name of service.
         :param str disabled_reason: The reason of force down a service.
 
-        :returns: None
+        :returns: Updated service instance
+        :rtype: class: `~openstack.compute.v2.service.Service`
         """
-        service = self._get_resource(_service.Service, service)
-        service.disable(self,
-                        host, binary,
-                        disabled_reason)
+        if utils.supports_microversion(self, '2.53'):
+            attrs = {
+                'status': 'disabled'
+            }
+            if disabled_reason:
+                attrs['disabled_reason'] = disabled_reason
+            return self.update_service(
+                service, **attrs)
 
-    def enable_service(self, service, host, binary):
+        service = self._get_resource(_service.Service, service)
+        return service.disable(
+            self, host, binary, disabled_reason)
+
+    def enable_service(self, service, host=None, binary=None):
         """Enable a service
 
         :param service: Either the ID of a service or a
-                       :class:`~openstack.compute.v2.server.Service` instance.
+            :class:`~openstack.compute.v2.service.Service` instance.
         :param str host: The host where service runs.
         :param str binary: The name of service.
 
-
-        :returns: None
+        :returns: Updated service instance
+        :rtype: class: `~openstack.compute.v2.service.Service`
         """
-        service = self._get_resource(_service.Service, service)
-        service.enable(self, host, binary)
+        if utils.supports_microversion(self, '2.53'):
+            return self.update_service(
+                service, status='enabled')
 
-    def services(self):
+        service = self._get_resource(_service.Service, service)
+        return service.enable(self, host, binary)
+
+    def services(self, **query):
         """Return a generator of service
 
+        :params dict query: Query parameters
         :returns: A generator of service
         :rtype: class: `~openstack.compute.v2.service.Service`
         """
+        return self._list(_service.Service, **query)
 
-        return self._list(_service.Service)
+    def find_service(self, name_or_id, ignore_missing=True, **attrs):
+        """Find a service from name or id to get the corresponding info
+
+        :param name_or_id: The name or id of a service
+        :param dict attrs: Additional attributes like 'host'
+
+        :returns:
+            One: class:`~openstack.compute.v2.hypervisor.Hypervisor` object
+            or None
+        """
+        return self._find(_service.Service, name_or_id,
+                          ignore_missing=ignore_missing, **attrs)
+
+    def delete_service(self, service, ignore_missing=True):
+        """Delete a service
+
+        :param service:
+            The value can be either the ID of a service or a
+            :class:`~openstack.compute.v2.service.Service` instance.
+        :param bool ignore_missing: When set to ``False``
+            :class:`~openstack.exceptions.ResourceNotFound` will be raised when
+            the volume attachment does not exist.  When set to ``True``, no
+            exception will be set when attempting to delete a nonexistent
+            volume attachment.
+
+        :returns: ``None``
+        """
+        self._delete(
+            _service.Service, service, ignore_missing=ignore_missing)
+
+    def update_service(self, service, **attrs):
+        """Update a service
+
+        :param server: Either the ID of a service or a
+            :class:`~openstack.compute.v2.service.Service` instance.
+        :attrs kwargs: The attributes to update on the service represented
+            by ``service``.
+
+        :returns: The updated service
+        :rtype: :class:`~openstack.compute.v2.service.Service`
+        """
+        if utils.supports_microversion(self, '2.53'):
+            return self._update(_service.Service, service, **attrs)
+
+        raise exceptions.SDKException(
+            'Method require at least microversion 2.53'
+        )
 
     def create_volume_attachment(self, server, **attrs):
         """Create a new volume attachment from attributes
@@ -1485,8 +1772,51 @@ class Proxy(proxy.Proxy):
                     ServerRemoteConsole`
         """
         server_id = resource.Resource._get_id(server)
-        return self._create(_server_remote_console.ServerRemoteConsole,
+        return self._create(_src.ServerRemoteConsole,
                             server_id=server_id, **attrs)
+
+    def get_server_console_url(self, server, console_type):
+        """Create a remote console on the server.
+
+        :param server: Either the ID of a server or a
+            :class:`~openstack.compute.v2.server.Server` instance.
+        :param console_type: Type of the console connection.
+        :returns: Dictionary with console type and url
+        """
+        server = self._get_resource(_server.Server, server)
+        return server.get_console_url(self, console_type)
+
+    def create_console(self, server, console_type, console_protocol=None):
+        """Create a remote console on the server.
+
+        When microversion supported is higher then 2.6 remote console is
+        created, otherwise deprecated call to get server console is issued.
+
+        :param server: Either the ID of a server or a
+            :class:`~openstack.compute.v2.server.Server` instance.
+        :param console_type: Type of the remote console. Supported values as:
+            * novnc
+            * spice-html5
+            * rdp-html5
+            * serial
+            * webmks (supported after 2.8)
+        :param console_protocol: Optional console protocol (is respected only
+            after microversion 2.6).
+
+        :returns: Dictionary with console type, url and optionally protocol.
+        """
+        server = self._get_resource(_server.Server, server)
+        # NOTE: novaclient supports undocumented type xcpvnc also supported
+        # historically by OSC. We support it, but do not document either.
+        if utils.supports_microversion(self, '2.6'):
+            console = self._create(
+                _src.ServerRemoteConsole,
+                server_id=server.id,
+                type=console_type,
+                protocol=console_protocol)
+            return console.to_dict()
+        else:
+            return server.get_console_url(self, console_type)
 
     def _get_cleanup_dependencies(self):
         return {

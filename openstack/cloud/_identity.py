@@ -17,9 +17,9 @@ import types  # noqa
 
 import munch
 
-from openstack.cloud import exc
 from openstack.cloud import _normalize
 from openstack.cloud import _utils
+from openstack.cloud import exc
 from openstack import utils
 
 
@@ -1061,7 +1061,7 @@ class IdentityCloudMixin(_normalize.Normalizer):
         self.list_groups.invalidate(self)
         return True
 
-    @_utils.valid_kwargs('domain_id')
+    @_utils.valid_kwargs('domain_id', 'name')
     def list_roles(self, **kwargs):
         """List Keystone roles.
 

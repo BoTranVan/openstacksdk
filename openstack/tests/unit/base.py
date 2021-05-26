@@ -17,21 +17,21 @@ import collections
 import os
 import tempfile
 import time
-import uuid
 import urllib
+import uuid
 
 import fixtures
 from keystoneauth1 import loading as ks_loading
-import openstack.config as occ
 from oslo_config import cfg
 from requests import structures
 from requests_mock.contrib import fixture as rm_fixture
 
 import openstack.cloud
+import openstack.config as occ
 import openstack.connection
-from openstack.tests import fakes
 from openstack.fixture import connection as os_fixture
 from openstack.tests import base
+from openstack.tests import fakes
 
 
 _ProjectData = collections.namedtuple(
@@ -187,10 +187,13 @@ class TestCase(base.TestCase):
             to_join.append(base_url_append)
         if resource:
             to_join.append(resource)
-        to_join.extend(append or [])
+        if append:
+            to_join.extend([urllib.parse.quote(i) for i in append])
         if qs_elements is not None:
             qs = '?%s' % '&'.join(qs_elements)
-        return '%(uri)s%(qs)s' % {'uri': '/'.join(to_join), 'qs': qs}
+        return '%(uri)s%(qs)s' % {
+            'uri': '/'.join(to_join),
+            'qs': qs}
 
     def mock_for_keystone_projects(self, project=None, v3=True,
                                    list_get=False, id_get=False,
@@ -571,6 +574,13 @@ class TestCase(base.TestCase):
         return dict(method='GET', uri="https://accelerator.example.com/",
                     text=open(discovery_fixture, 'r').read())
 
+    def get_manila_discovery_mock_dict(self):
+        discovery_fixture = os.path.join(
+            self.fixtures_directory, "shared-file-system.json")
+        return dict(method='GET',
+                    uri="https://shared-file-system.example.com/",
+                    text=open(discovery_fixture, 'r').read())
+
     def use_glance(
             self, image_version_json='image-version.json',
             image_discovery_url='https://image.example.com/'):
@@ -626,6 +636,15 @@ class TestCase(base.TestCase):
         # right location in the mock_uris when calling .register_uris
         self.__do_register_uris([
             self.get_cyborg_discovery_mock_dict()])
+
+    def use_manila(self):
+        # NOTE(gouthamr): This method is only meant to be used in "setUp"
+        # where the ordering of the url being registered is tightly controlled
+        # if the functionality of .use_manila is meant to be used during an
+        # actual test case, use .get_manila_discovery_mock and apply to the
+        # right location in the mock_uris when calling .register_uris
+        self.__do_register_uris([
+            self.get_manila_discovery_mock_dict()])
 
     def register_uris(self, uri_mock_list=None):
         """Mock a list of URIs and responses via requests mock.

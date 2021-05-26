@@ -10,9 +10,9 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from openstack.compute.v2 import server_interface
 from openstack.tests.unit import base
 
-from openstack.compute.v2 import server_interface
 
 IDENTIFIER = 'IDENTIFIER'
 EXAMPLE = {
@@ -27,6 +27,7 @@ EXAMPLE = {
     'port_id': '4',
     'port_state': '5',
     'server_id': '6',
+    'tag': '7',
 }
 
 
@@ -51,3 +52,4 @@ class TestServerInterface(base.TestCase):
         self.assertEqual(EXAMPLE['port_id'], sot.port_id)
         self.assertEqual(EXAMPLE['port_state'], sot.port_state)
         self.assertEqual(EXAMPLE['server_id'], sot.server_id)
+        self.assertEqual(EXAMPLE['tag'], sot.tag)

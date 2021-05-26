@@ -29,11 +29,14 @@ class Pool(resource.Resource, resource.TagMixin):
         'health_monitor_id', 'lb_algorithm', 'listener_id', 'loadbalancer_id',
         'description', 'name', 'project_id', 'protocol',
         'created_at', 'updated_at', 'provisioning_status', 'operating_status',
-        'tls_ciphers', 'tls_versions', is_admin_state_up='admin_state_up',
+        'tls_enabled', 'tls_ciphers', 'tls_versions', 'alpn_protocols',
+        is_admin_state_up='admin_state_up',
         **resource.TagMixin._tag_query_parameters
     )
 
     #: Properties
+    #: List of ALPN protocols.
+    alpn_protocols = resource.Body('alpn_protocols', type=list)
     #: Timestamp when the pool was created
     created_at = resource.Body('created_at')
     #: Description for the pool.
@@ -72,3 +75,5 @@ class Pool(resource.Resource, resource.TagMixin):
     tls_versions = resource.Body('tls_versions', type=list)
     #: Timestamp when the pool was updated
     updated_at = resource.Body('updated_at')
+    #: Use TLS for connections to backend member servers *Type: bool*
+    tls_enabled = resource.Body('tls_enabled', type=bool)

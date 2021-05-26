@@ -34,9 +34,9 @@ Config Files
 `openstacksdk` will look for a file called `clouds.yaml` in the following
 locations:
 
-* Current Directory
-* ~/.config/openstack
-* /etc/openstack
+* ``.`` (the current directory)
+* ``$HOME/.config/openstack``
+* ``/etc/openstack``
 
 The first file found wins.
 
@@ -249,6 +249,42 @@ are connecting to OpenStack can share a cache should you desire.
         project_name: mordred@inaugust.com
       region_name: ca-ymq-1
       dns_api_version: 1
+
+`openstacksdk` can also cache authorization state (token) in the keyring.
+That allow the consequent connections to the same cloud to skip fetching new
+token. When the token gets expired or gets invalid `openstacksdk` will
+establish new connection.
+
+
+.. code-block:: yaml
+
+  cache:
+    auth: true
+
+
+MFA Support
+-----------
+
+MFA support requires a specially prepared configuration file. In this case a
+combination of 2 different authorization plugins is used with their individual
+requirements to the specified parameteres.
+
+.. code-block:: yaml
+
+  clouds:
+    mfa:
+      auth_type: "v3multifactor"
+      auth_methods:
+        - v3password
+        - v3totp
+      auth:
+        auth_url: https://identity.cloud.com
+        username: user
+        user_id: uid
+        password: XXXXXXXXX
+        project_name: project
+        user_domain_name: udn
+        project_domain_name: pdn
 
 
 IPv6

@@ -27,8 +27,9 @@ class SecurityGroupRule(_base.NetworkResource, resource.TagMixin):
     allow_list = True
 
     _query_mapping = resource.QueryParameters(
-        'description', 'direction', 'protocol',
+        'description', 'direction', 'id', 'protocol',
         'remote_group_id', 'security_group_id',
+        'remote_address_group_id',
         'port_range_max', 'port_range_min',
         'remote_ip_prefix', 'revision_number',
         'project_id', 'tenant_id',
@@ -68,12 +69,17 @@ class SecurityGroupRule(_base.NetworkResource, resource.TagMixin):
     protocol = resource.Body('protocol')
     #: The remote security group ID to be associated with this security
     #: group rule. You can specify either ``remote_group_id`` or
-    #: ``remote_ip_prefix`` in the request body.
+    #: ``remote_address_group_id`` or ``remote_ip_prefix`` in the request body.
     remote_group_id = resource.Body('remote_group_id')
+    #: The remote address group ID to be associated with this security
+    #: group rule. You can specify either ``remote_group_id`` or
+    #: ``remote_address_group_id`` or ``remote_ip_prefix`` in the request body.
+    remote_address_group_id = resource.Body('remote_address_group_id')
     #: The remote IP prefix to be associated with this security group rule.
-    #: You can specify either ``remote_group_id`` or ``remote_ip_prefix``
-    #: in the request body. This attribute matches the specified IP prefix
-    #: as the source IP address of the IP packet.
+    #: You can specify either ``remote_group_id`` or
+    # ``remote_address_group_id``or ``remote_ip_prefix`` in the request body.
+    # This attribute matches the specified IP prefix as the source IP address
+    # of the IP packet.
     remote_ip_prefix = resource.Body('remote_ip_prefix')
     #: The security group ID to associate with this security group rule.
     security_group_id = resource.Body('security_group_id')
@@ -81,3 +87,15 @@ class SecurityGroupRule(_base.NetworkResource, resource.TagMixin):
     tenant_id = resource.Body('tenant_id')
     #: Timestamp when the security group rule was last updated.
     updated_at = resource.Body('updated_at')
+
+    def _prepare_request(self, *args, **kwargs):
+        _request = super(SecurityGroupRule, self)._prepare_request(
+            *args, **kwargs)
+        # Old versions of Neutron do not handle being passed a
+        # remote_address_group_id and raise and error.  Remove it from
+        # the body if it is blank.
+        if not self.remote_address_group_id:
+            if 'security_group_rule' in _request.body:
+                _rule = _request.body['security_group_rule']
+                _rule.pop('remote_address_group_id', None)
+        return _request

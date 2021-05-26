@@ -11,10 +11,19 @@
 # under the License.
 
 from openstack.compute.v2 import metadata
-from openstack.image.v2 import image
 from openstack import exceptions
+from openstack.image.v2 import image
 from openstack import resource
 from openstack import utils
+
+
+CONSOLE_TYPE_ACTION_MAPPING = {
+    'novnc': 'os-getVNCConsole',
+    'xvpvnc': 'os-getVNCConsole',
+    'spice-html5': 'os-getSPICEConsole',
+    'rdp-html5': 'os-getRDPConsole',
+    'serial': 'os-getSerialConsole'
+}
 
 
 class Server(resource.Resource, metadata.MetadataMixin, resource.TagMixin):
@@ -132,18 +141,17 @@ class Server(resource.Resource, metadata.MetadataMixin, resource.TagMixin):
     launch_index = resource.Body('OS-EXT-SRV-ATTR:launch_index', type=int)
     #: The timestamp when the server was launched.
     launched_at = resource.Body('OS-SRV-USG:launched_at')
+    #: The maximum number of servers to create.
+    max_count = resource.Body('max_count')
     #: Metadata stored for this server. *Type: dict*
     metadata = resource.Body('metadata', type=dict)
+    #: The minimum number of servers to create.
+    min_count = resource.Body('min_count')
     #: A networks object. Required parameter when there are multiple
     #: networks defined for the tenant. When you do not specify the
     #: networks parameter, the server attaches to the only network
     #: created for the current tenant.
     networks = resource.Body('networks')
-    #: The file path and contents, text only, to inject into the server at
-    #: launch. The maximum size of the file path data is 255 bytes.
-    #: The maximum limit is The number of allowed bytes in the decoded,
-    #: rather than encoded, data.
-    personality = resource.Body('personality')
     #: The power state of this server.
     power_state = resource.Body('OS-EXT-STS:power_state')
     #: While the server is building, this value represents the percentage
@@ -248,7 +256,12 @@ class Server(resource.Resource, metadata.MetadataMixin, resource.TagMixin):
     def get_password(self, session):
         """Get the encrypted administrator password."""
         url = utils.urljoin(Server.base_path, self.id, 'os-server-password')
-        return session.get(url)
+
+        response = session.get(url)
+        exceptions.raise_from_response(response)
+
+        data = response.json()
+        return data.get('password')
 
     def reboot(self, session, reboot_type):
         """Reboot server where reboot_type might be 'SOFT' or 'HARD'."""
@@ -263,7 +276,7 @@ class Server(resource.Resource, metadata.MetadataMixin, resource.TagMixin):
     def rebuild(self, session, name=None, admin_password=None,
                 preserve_ephemeral=False, image=None,
                 access_ipv4=None, access_ipv6=None,
-                metadata=None, personality=None):
+                metadata=None, user_data=None):
         """Rebuild the server with the given arguments."""
         action = {
             'preserve_ephemeral': preserve_ephemeral
@@ -280,8 +293,8 @@ class Server(resource.Resource, metadata.MetadataMixin, resource.TagMixin):
             action['accessIPv6'] = access_ipv6
         if metadata is not None:
             action['metadata'] = metadata
-        if personality is not None:
-            action['personality'] = personality
+        if user_data is not None:
+            action['user_data'] = user_data
 
         body = {'rebuild': action}
         response = self._action(session, body)
@@ -441,8 +454,10 @@ class Server(resource.Resource, metadata.MetadataMixin, resource.TagMixin):
         body = {"shelve": None}
         self._action(session, body)
 
-    def unshelve(self, session):
+    def unshelve(self, session, availability_zone=None):
         body = {"unshelve": None}
+        if availability_zone:
+            body["unshelve"] = {"availability_zone": availability_zone}
         self._action(session, body)
 
     def migrate(self, session):
@@ -474,6 +489,14 @@ class Server(resource.Resource, metadata.MetadataMixin, resource.TagMixin):
                 force=force,
                 block_migration=block_migration,
                 disk_over_commit=disk_over_commit)
+
+    def get_console_url(self, session, console_type):
+        action = CONSOLE_TYPE_ACTION_MAPPING.get(console_type)
+        if not action:
+            raise ValueError("Unsupported console type %s" % console_type)
+        body = {action: {'type': console_type}}
+        resp = self._action(session, body)
+        return resp.json().get('console')
 
     def _live_migrate_30(self, session, host, force, block_migration):
         microversion = '2.30'

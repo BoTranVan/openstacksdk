@@ -17,7 +17,6 @@ from openstack.block_storage.v2 import snapshot
 from openstack.block_storage.v2 import stats
 from openstack.block_storage.v2 import type
 from openstack.block_storage.v2 import volume
-from openstack import exceptions
 from openstack.tests.unit import test_proxy_base
 
 
@@ -89,10 +88,11 @@ class TestVolumeProxy(test_proxy_base.TestProxyBase):
         self.verify_delete(self.proxy.delete_volume, volume.Volume, True)
 
     def test_volume_extend(self):
-        self._verify("openstack.block_storage.v2.volume.Volume.extend",
-                     self.proxy.extend_volume,
-                     method_args=["value", "new-size"],
-                     expected_args=["new-size"])
+        self._verify(
+            "openstack.block_storage.v2.volume.Volume.extend",
+            self.proxy.extend_volume,
+            method_args=["value", "new-size"],
+            expected_args=[self.proxy, "new-size"])
 
     def test_backend_pools(self):
         self.verify_list(self.proxy.backend_pools, stats.Pools)
@@ -142,7 +142,7 @@ class TestVolumeProxy(test_proxy_base.TestProxyBase):
         # NOTE: mock has_service
         self.proxy._connection = mock.Mock()
         self.proxy._connection.has_service = mock.Mock(return_value=True)
-        self._verify2(
+        self._verify(
             'openstack.block_storage.v2.backup.Backup.restore',
             self.proxy.restore_backup,
             method_args=['volume_id'],
@@ -150,16 +150,3 @@ class TestVolumeProxy(test_proxy_base.TestProxyBase):
             expected_args=[self.proxy],
             expected_kwargs={'volume_id': 'vol_id', 'name': 'name'}
         )
-
-    def test_backup_no_swift(self):
-        """Ensure proxy method raises exception if swift is not available
-        """
-        # NOTE: mock has_service
-        self.proxy._connection = mock.Mock()
-        self.proxy._connection.has_service = mock.Mock(return_value=False)
-        self.assertRaises(
-            exceptions.SDKException,
-            self.proxy.restore_backup,
-            'backup',
-            'volume_id',
-            'name')

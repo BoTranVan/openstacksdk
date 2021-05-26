@@ -34,10 +34,10 @@ and then returned to the caller.
 import collections
 import inspect
 import itertools
+import operator
 import urllib.parse
 
 import jsonpatch
-import operator
 from keystoneauth1 import adapter
 from keystoneauth1 import discover
 import munch
@@ -49,6 +49,8 @@ from openstack import format
 from openstack import utils
 
 _SEEN_FORMAT = '{name}_seen'
+
+LOG = _log.setup_logging(__name__)
 
 
 def _convert_type(value, data_type, list_type=None):
@@ -89,8 +91,18 @@ class _BaseComponent:
     # The class to be used for mappings
     _map_cls = dict
 
+    #: Marks the property as deprecated.
+    deprecated = False
+    #: Deprecation reason message used to warn users when deprecated == True
+    deprecation_reason = None
+
+    #: Control field used to manage the deprecation warning. We want to warn
+    # only once when the attribute is retrieved in the code.
+    already_warned_deprecation = False
+
     def __init__(self, name, type=None, default=None, alias=None, aka=None,
                  alternate_id=False, list_type=None, coerce_to_default=False,
+                 deprecated=False, deprecation_reason=None,
                  **kwargs):
         """A typed descriptor for a component that makes up a Resource
 
@@ -115,6 +127,11 @@ class _BaseComponent:
             If the Component is None or not present, force the given default
             to be used. If a default is not given but a type is given,
             construct an empty version of the type in question.
+        :param deprecated:
+            Indicates if the option is deprecated. If it is, we display a
+            warning message to the user.
+        :param deprecation_reason:
+            Custom deprecation message.
         """
         self.name = name
         self.type = type
@@ -128,6 +145,9 @@ class _BaseComponent:
         self.list_type = list_type
         self.coerce_to_default = coerce_to_default
 
+        self.deprecated = deprecated
+        self.deprecation_reason = deprecation_reason
+
     def __get__(self, instance, owner):
         if instance is None:
             return self
@@ -137,6 +157,7 @@ class _BaseComponent:
         try:
             value = attributes[self.name]
         except KeyError:
+            value = self.default
             if self.alias:
                 # Resource attributes can be aliased to each other. If neither
                 # of them exist, then simply doing a
@@ -156,14 +177,28 @@ class _BaseComponent:
                     setattr(instance, seen_flag, True)
                     value = getattr(instance, self.alias)
                     delattr(instance, seen_flag)
-                    return value
-            return self.default
+            self.warn_if_deprecated_property(value)
+            return value
 
         # self.type() should not be called on None objects.
         if value is None:
             return None
 
+        self.warn_if_deprecated_property(value)
         return _convert_type(value, self.type, self.list_type)
+
+    def warn_if_deprecated_property(self, value):
+        deprecated = object.__getattribute__(self, 'deprecated')
+        deprecate_reason = object.__getattribute__(self, 'deprecation_reason')
+
+        if value and deprecated and not self.already_warned_deprecation:
+            self.already_warned_deprecation = True
+            if not deprecate_reason:
+                LOG.warning("The option [%s] has been deprecated. "
+                            "Please avoid using it.", self.name)
+            else:
+                LOG.warning(deprecate_reason)
+        return value
 
     def __set__(self, instance, value):
         if self.coerce_to_default and value is None:
@@ -456,6 +491,8 @@ class Resource(dict):
     _original_body = None
     _delete_response_class = None
     _store_unknown_attrs_as_properties = False
+    _allow_unknown_attrs_in_body = False
+    _unknown_attrs_in_body = None
 
     # Placeholder for aliases as dict of {__alias__:__original}
     _attr_aliases = {}
@@ -475,10 +512,16 @@ class Resource(dict):
         """
         self._connection = connection
         self.microversion = attrs.pop('microversion', None)
+
+        self._unknown_attrs_in_body = {}
+
         # NOTE: _collect_attrs modifies **attrs in place, removing
         # items as they match up with any of the body, header,
         # or uri mappings.
         body, header, uri, computed = self._collect_attrs(attrs)
+
+        if self._allow_unknown_attrs_in_body:
+            self._unknown_attrs_in_body.update(attrs)
 
         self._body = _ComponentManager(
             attributes=body,
@@ -562,6 +605,14 @@ class Resource(dict):
             self._computed.attributes == comparand._computed.attributes
         ])
 
+    def warning_if_attribute_deprecated(self, attr, value):
+        if value and self.deprecated:
+            if not self.deprecation_reason:
+                LOG.warning("The option [%s] has been deprecated. "
+                            "Please avoid using it.", attr)
+            else:
+                LOG.warning(self.deprecation_reason)
+
     def __getattribute__(self, name):
         """Return an attribute on this instance
 
@@ -575,7 +626,9 @@ class Resource(dict):
             else:
                 try:
                     return self._body[self._alternate_id()]
-                except KeyError:
+                except KeyError as e:
+                    LOG.debug("Attribute [%s] not found in [%s]: %s.",
+                              self._alternate_id(), self._body, e)
                     return None
         else:
             try:
@@ -585,6 +638,11 @@ class Resource(dict):
                     # Hmm - not found. But hey, the alias exists...
                     return object.__getattribute__(
                         self, self._attr_aliases[name])
+                if self._allow_unknown_attrs_in_body:
+                    # Last chance, maybe it's in body as attribute which isn't
+                    # in the mapping at all...
+                    if name in self._unknown_attrs_in_body:
+                        return self._unknown_attrs_in_body[name]
                 raise e
 
     def __getitem__(self, name):
@@ -609,6 +667,9 @@ class Resource(dict):
         if isinstance(real_item, _BaseComponent):
             self.__setattr__(name, value)
         else:
+            if self._allow_unknown_attrs_in_body:
+                self._unknown_attrs_in_body[name] = value
+                return
             raise KeyError(
                 "{name} is not found. {module}.{cls} objects do not support"
                 " setting arbitrary keys through the"
@@ -695,9 +756,12 @@ class Resource(dict):
         header = self._consume_header_attrs(attrs)
         uri = self._consume_uri_attrs(attrs)
 
-        if attrs and self._store_unknown_attrs_as_properties:
-            # Keep also remaining (unknown) attributes
-            body = self._pack_attrs_under_properties(body, attrs)
+        if attrs:
+            if self._allow_unknown_attrs_in_body:
+                body.update(attrs)
+            elif self._store_unknown_attrs_as_properties:
+                # Keep also remaining (unknown) attributes
+                body = self._pack_attrs_under_properties(body, attrs)
 
         if any([body, header, uri]):
             attrs = self._compute_attributes(body, header, uri)
@@ -1125,8 +1189,10 @@ class Resource(dict):
                 body.pop("self", None)
 
                 body_attrs = self._consume_body_attrs(body)
-
-                if self._store_unknown_attrs_as_properties:
+                if self._allow_unknown_attrs_in_body:
+                    body_attrs.update(body)
+                    self._unknown_attrs_in_body.update(body)
+                elif self._store_unknown_attrs_as_properties:
                     body_attrs = self._pack_attrs_under_properties(
                         body_attrs, body)
 
@@ -1684,8 +1750,17 @@ class Resource(dict):
             allow_unknown_params=allow_unknown_params)
         query_params = cls._query_mapping._transpose(params, cls)
         uri = base_path % params
+        uri_params = {}
 
         limit = query_params.get('limit')
+
+        for k, v in params.items():
+            # We need to gather URI parts to set them on the resource later
+            if (
+                hasattr(cls, k)
+                and isinstance(getattr(cls, k), URI)
+            ):
+                uri_params[k] = v
 
         # Track the total number of resources yielded so we can paginate
         # swift objects
@@ -1701,7 +1776,7 @@ class Resource(dict):
             data = response.json()
 
             # Discard any existing pagination keys
-            query_params.pop('marker', None)
+            last_marker = query_params.pop('marker', None)
             query_params.pop('limit', None)
 
             if cls.resources_key:
@@ -1720,6 +1795,8 @@ class Resource(dict):
                 # Resource initializer. "self" is already the first
                 # argument and is practically a reserved word.
                 raw_resource.pop("self", None)
+                # We want that URI props are available on the resource
+                raw_resource.update(uri_params)
 
                 value = cls.existing(
                     microversion=microversion,
@@ -1732,6 +1809,17 @@ class Resource(dict):
             if resources and paginated:
                 uri, next_params = cls._get_next_link(
                     uri, response, data, marker, limit, total_yielded)
+                try:
+                    if next_params['marker'] == last_marker:
+                        # If next page marker is same as what we were just
+                        # asked something went terribly wrong. Some ancient
+                        # services had bugs.
+                        raise exceptions.SDKException(
+                            'Endless pagination loop detected, aborting'
+                        )
+                except KeyError:
+                    # do nothing, exception handling is cheaper then "if"
+                    pass
                 query_params.update(next_params)
             else:
                 return
@@ -1818,22 +1906,26 @@ class Resource(dict):
         return the_result
 
     @classmethod
-    def find(cls, session, name_or_id, ignore_missing=True, **params):
+    def find(
+        cls, session, name_or_id, ignore_missing=True,
+        list_base_path=None, **params
+    ):
         """Find a resource by its name or id.
 
         :param session: The session to use for making this request.
         :type session: :class:`~keystoneauth1.adapter.Adapter`
         :param name_or_id: This resource's identifier, if needed by
-                           the request. The default is ``None``.
+            the request. The default is ``None``.
         :param bool ignore_missing: When set to ``False``
-                    :class:`~openstack.exceptions.ResourceNotFound` will be
-                    raised when the resource does not exist.
-                    When set to ``True``, None will be returned when
-                    attempting to find a nonexistent resource.
+            :class:`~openstack.exceptions.ResourceNotFound` will be raised when
+            the resource does not exist.  When set to ``True``, None will be
+            returned when attempting to find a nonexistent resource.
+        :param str list_base_path: base_path to be used when need listing
+            resources.
         :param dict params: Any additional parameters to be passed into
-                            underlying methods, such as to
-                            :meth:`~openstack.resource.Resource.existing`
-                            in order to pass on URI parameters.
+            underlying methods, such as to
+            :meth:`~openstack.resource.Resource.existing` in order to pass on
+            URI parameters.
 
         :return: The :class:`Resource` object matching the given name or id
                  or None if nothing matches.
@@ -1850,8 +1942,13 @@ class Resource(dict):
                 connection=session._get_connection(),
                 **params)
             return match.fetch(session, **params)
-        except exceptions.NotFoundException:
+        except (exceptions.NotFoundException, exceptions.BadRequestException):
+            # NOTE(gtema): There are few places around openstack that return
+            # 400 if we try to GET resource and it doesn't exist.
             pass
+
+        if list_base_path:
+            params['base_path'] = list_base_path
 
         if ('name' in cls._query_mapping._mapping.keys()
                 and 'name' not in params):
@@ -2014,7 +2111,6 @@ def wait_for_status(session, resource, status, failures, interval=None,
     :raises: :class:`~AttributeError` if the resource does not have a status
              attribute
     """
-    log = _log.setup_logging(__name__)
 
     current_status = getattr(resource, attribute)
     if _normalize_status(current_status) == status.lower():
@@ -2048,7 +2144,7 @@ def wait_for_status(session, resource, status, failures, interval=None,
                 "{name} transitioned to failure state {status}".format(
                     name=name, status=new_status))
 
-        log.debug('Still waiting for resource %s to reach state %s, '
+        LOG.debug('Still waiting for resource %s to reach state %s, '
                   'current state is %s', name, status, new_status)
 
 

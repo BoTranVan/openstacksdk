@@ -18,8 +18,8 @@ Node Operations
   :noindex:
   :members: nodes, find_node, get_node, create_node, update_node, patch_node, delete_node,
             validate_node, set_node_power_state, set_node_provision_state,
-            wait_for_nodes_provision_state, wait_for_node_reservation,
-            set_node_maintenance, unset_node_maintenance
+            wait_for_nodes_provision_state, wait_for_node_power_state,
+            wait_for_node_reservation, set_node_maintenance, unset_node_maintenance
 
 Port Operations
 ^^^^^^^^^^^^^^^
@@ -68,6 +68,22 @@ Volume Connector Operations
   :members: volume_connectors, find_volume_connector, get_volume_connector,
             create_volume_connector, update_volume_connector,
             patch_volume_connector, delete_volume_connector
+
+Volume Target Operations
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: openstack.baremetal.v1._proxy.Proxy
+  :noindex:
+  :members: volume_targets, find_volume_target, get_volume_target,
+            create_volume_target, update_volume_target,
+            patch_volume_target, delete_volume_target
+
+Deploy Template Operations
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: openstack.baremetal.v1._proxy.Proxy
+  :noindex:
+  :members: deploy_templates, get_deploy_template,
+            create_deploy_template, update_deploy_template,
+            patch_deploy_template, delete_deploy_template
 
 Utilities
 ---------

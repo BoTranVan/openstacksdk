@@ -11,3 +11,6 @@ Baremetal Resources
    v1/port_group
    v1/allocation
    v1/volume_connector
+   v1/volume_target
+   v1/deploy_templates
+   v1/conductor

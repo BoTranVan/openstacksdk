@@ -40,7 +40,11 @@ Router Operations
             find_router, routers,
             add_gateway_to_router, remove_gateway_from_router,
             add_interface_to_router, remove_interface_from_router,
-            add_extra_routes_to_router, remove_extra_routes_from_router
+            add_extra_routes_to_router, remove_extra_routes_from_router,
+            create_conntrack_helper, update_conntrack_helper,
+            delete_conntrack_helper, get_conntrack_helper, conntrack_helpers
+
+
 
 Floating IP Operations
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -229,6 +233,15 @@ VPN Operations
   :noindex:
   :members: create_vpn_service, update_vpn_service, delete_vpn_service,
             get_vpn_service, find_vpn_service, vpn_services
+
+IPSecSiteConnection Operations
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: openstack.network.v2._proxy.Proxy
+  :noindex:
+  :members: create_vpn_ipsec_site_connection, update_vpn_ipsec_site_connection,
+            delete_vpn_ipsec_site_connection, get_vpn_ipsec_site_connection,
+            find_vpn_ipsec_site_connection, vpn_ipsec_site_connections
 
 Extension Operations
 ^^^^^^^^^^^^^^^^^^^^

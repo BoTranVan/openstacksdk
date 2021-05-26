@@ -249,9 +249,9 @@
         IRONIC_CALLBACK_TIMEOUT: 600
         IRONIC_DEPLOY_DRIVER: ipmi
         IRONIC_RAMDISK_TYPE: tinyipa
-        IRONIC_VM_COUNT: 6
+        IRONIC_VM_COUNT: 2
         IRONIC_VM_LOG_DIR: '{{ devstack_base_dir }}/ironic-bm-logs'
-        IRONIC_VM_SPECS_RAM: 512
+        IRONIC_VM_SPECS_RAM: 1024
       devstack_plugins:
         ironic: https://opendev.org/openstack/ironic
       devstack_services:
@@ -274,6 +274,7 @@
         n-sch: false
         nova: false
         placement-api: false
+        dstat: false
       tox_environment:
         OPENSTACKSDK_HAS_IRONIC: 1
         # NOTE(dtantsur): this job cannot run many regular tests (e.g. compute
@@ -375,8 +376,7 @@
 - project:
     templates:
       - check-requirements
-      - openstack-lower-constraints-jobs
-      - openstack-python3-ussuri-jobs
+      - openstack-python3-xena-jobs
       - openstacksdk-functional-tips
       - openstacksdk-tox-tips
       - os-client-config-tox-tips
@@ -387,7 +387,7 @@
       jobs:
         - opendev-buildset-registry
         - nodepool-build-image-siblings
-        - nodepool-functional-container-openstack-siblings
+        - dib-nodepool-functional-openstack-centos-8-stream-src
         - openstacksdk-functional-devstack
         - openstacksdk-functional-devstack-networking
         - openstacksdk-functional-devstack-senlin
@@ -402,21 +402,17 @@
         # Ironic jobs, non-voting to avoid tight coupling
         - ironic-inspector-tempest-openstacksdk-src:
             voting: false
-        - bifrost-integration-tinyipa-ubuntu-bionic:
+        - bifrost-integration-tinyipa-ubuntu-focal:
             voting: false
         - metalsmith-integration-openstacksdk-src:
             voting: false
         - ansible-collections-openstack-functional-devstack:
             voting: false
-        - openstacksdk-ansible-stable-2.8-functional-devstack:
-            voting: false
-        - openstacksdk-ansible-stable-2.9-functional-devstack:
-            voting: false
     gate:
       jobs:
         - opendev-buildset-registry
         - nodepool-build-image-siblings
-        - nodepool-functional-container-openstack-siblings
+        - dib-nodepool-functional-openstack-centos-8-stream-src
         - openstacksdk-functional-devstack
         - openstacksdk-functional-devstack-networking
         - openstacksdk-functional-devstack-senlin

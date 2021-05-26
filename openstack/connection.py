@@ -176,6 +176,7 @@ try to find it and if that fails, you would create it::
 Additional information about the services can be found in the
 :ref:`service-proxies` documentation.
 """
+import concurrent.futures
 import warnings
 import weakref
 
@@ -185,20 +186,17 @@ try:
 except ImportError:
     # For everyone else
     import importlib_metadata
-
-import concurrent.futures
 import keystoneauth1.exceptions
 import requestsexceptions
 
 from openstack import _log
 from openstack import _services_mixin
-from openstack.cloud import openstackcloud as _cloud
 from openstack.cloud import _accelerator
 from openstack.cloud import _baremetal
 from openstack.cloud import _block_storage
-from openstack.cloud import _compute
 from openstack.cloud import _clustering
 from openstack.cloud import _coe
+from openstack.cloud import _compute
 from openstack.cloud import _dns
 from openstack.cloud import _floating_ip
 from openstack.cloud import _identity
@@ -208,6 +206,8 @@ from openstack.cloud import _network_common
 from openstack.cloud import _object_store
 from openstack.cloud import _orchestration
 from openstack.cloud import _security_group
+from openstack.cloud import _shared_file_system
+from openstack.cloud import openstackcloud as _cloud
 from openstack import config as _config
 from openstack.config import cloud_region
 from openstack import exceptions
@@ -271,7 +271,8 @@ class Connection(
     _network_common.NetworkCommonCloudMixin,
     _object_store.ObjectStoreCloudMixin,
     _orchestration.OrchestrationCloudMixin,
-    _security_group.SecurityGroupCloudMixin
+    _security_group.SecurityGroupCloudMixin,
+    _shared_file_system.SharedFileSystemCloudMixin,
 ):
 
     def __init__(self, cloud=None, config=None, session=None,
@@ -415,6 +416,7 @@ class Connection(
         _object_store.ObjectStoreCloudMixin.__init__(self)
         _orchestration.OrchestrationCloudMixin.__init__(self)
         _security_group.SecurityGroupCloudMixin.__init__(self)
+        _shared_file_system.SharedFileSystemCloudMixin.__init__(self)
 
         # Allow vendors to provide hooks. They will normally only receive a
         # connection object and a responsible to register additional services
@@ -451,6 +453,10 @@ class Connection(
                 and 'additional_metric_tags' in self.config.config):
             self.config._influxdb_config['additional_metric_tags'] = \
                 self.config.config['additional_metric_tags']
+
+    def __del__(self):
+        # try to force release of resources and save authorization
+        self.close()
 
     @property
     def session(self):
@@ -528,6 +534,7 @@ class Connection(
         """Release any resources held open."""
         if self.__pool_executor:
             self.__pool_executor.shutdown()
+        self.config.set_auth_cache()
 
     def set_global_request_id(self, global_request_id):
         self._global_request_id = global_request_id

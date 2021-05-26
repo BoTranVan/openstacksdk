@@ -10,10 +10,11 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from openstack.tests.unit import base
 import uuid
 
 from openstack.load_balancer.v2 import pool
+from openstack.tests.unit import base
+
 
 IDENTIFIER = 'IDENTIFIER'
 EXAMPLE = {
@@ -35,8 +36,10 @@ EXAMPLE = {
     'health_monitor': 'healthmonitor',
     'health_monitor_id': uuid.uuid4(),
     'members': [{'id': uuid.uuid4()}],
+    'tls_enabled': True,
     'tls_ciphers': 'ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256',
     'tls_versions': ['TLSv1.1', 'TLSv1.2'],
+    'alpn_protocols': ['h2', 'http/1.1', 'http/1.0'],
 }
 
 
@@ -83,10 +86,14 @@ class TestPool(base.TestCase):
         self.assertEqual(EXAMPLE['health_monitor_id'],
                          test_pool.health_monitor_id)
         self.assertEqual(EXAMPLE['members'], test_pool.members)
+        self.assertEqual(EXAMPLE['tls_enabled'],
+                         test_pool.tls_enabled)
         self.assertEqual(EXAMPLE['tls_ciphers'],
                          test_pool.tls_ciphers)
         self.assertEqual(EXAMPLE['tls_versions'],
                          test_pool.tls_versions)
+        self.assertEqual(EXAMPLE['alpn_protocols'],
+                         test_pool.alpn_protocols)
 
         self.assertDictEqual(
             {'limit': 'limit',
@@ -109,7 +116,9 @@ class TestPool(base.TestCase):
              'listener_id': 'listener_id',
              'loadbalancer_id': 'loadbalancer_id',
              'protocol': 'protocol',
+             'tls_enabled': 'tls_enabled',
              'tls_ciphers': 'tls_ciphers',
              'tls_versions': 'tls_versions',
+             'alpn_protocols': 'alpn_protocols',
              },
             test_pool._query_mapping._mapping)
